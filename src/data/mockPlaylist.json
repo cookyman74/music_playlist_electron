@@ -1,0 +1,5 @@
+[
+  { "id": 1, "title": "노래 1", "artist": "아티스트 A", "src": "/download/a thousand years.mp3" },
+  { "id": 2, "title": "노래 2", "artist": "아티스트 B", "src": "/download/Fallin\\'\\ All\\ In\\ You.mp3" },
+  { "id": 3, "title": "노래 3", "artist": "아티스트 C", "src": "/download/Holy.mp3" }
+]
