@@ -1,14 +1,12 @@
 import React, { useState } from "react";
 
-// Electron이 있는지 확인하는 함수
-const isElectron = () => {
-    return typeof window !== "undefined" && window.hasOwnProperty("require");
-};
-
 // ipcRenderer 타입 선언
-let ipcRenderer: Electron.IpcRenderer | undefined;
-if (isElectron()) {
-    ipcRenderer = window.require("electron").ipcRenderer;
+let ipcRenderer: typeof window.electron.ipcRenderer | undefined;
+if (typeof window !== "undefined" && window.electron) {
+    ipcRenderer = window.electron.ipcRenderer;
+    console.log("ipcRenderer 로드 성공"); // ipcRenderer가 로드되었는지 확인
+} else {
+    console.warn("Electron 환경이 아님");
 }
 
 interface DownloadButtonProps {
@@ -22,10 +20,10 @@ const DownloadButton: React.FC<DownloadButtonProps> = ({ onDownloadComplete }) =
     const handleDownload = () => {
         if (ipcRenderer) {
             ipcRenderer.send("download-playlist", url);
-            ipcRenderer.once("download-status", (event: Electron.IpcRendererEvent, message: string) => {
+            ipcRenderer.once("download-status", (event, message: string) => {
                 setStatus(message);
             });
-            ipcRenderer.once("download-path", (event: Electron.IpcRendererEvent, downloadPath: string) => {
+            ipcRenderer.once("download-path", (event, downloadPath: string) => {
                 onDownloadComplete(downloadPath);
             });
         } else {
