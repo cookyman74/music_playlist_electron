@@ -1,17 +1,39 @@
-// src/components/Playlist/Playlist.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography, List, ListItem, ListItemText, Button, LinearProgress } from '@mui/material';
 import { Track } from '../../services/api';
 
 interface PlaylistProps {
     tracks: Track[];
     onSelectTrack: (track: Track) => void;
-    onDownloadTrack: (trackId: number) => void; // 다운로드 트리거
-    onCancelDownload: (trackId: number) => void; // 다운로드 취소 트리거
-    downloadingTracks: { [key: number]: number }; // 각 트랙의 진행률
+    onDownloadTrack: (trackId: number) => void;
+    onCancelDownload: (trackId: number) => void;
+    downloadingTracks: { [key: number]: number };
 }
 
 const Playlist: React.FC<PlaylistProps> = ({ tracks, onSelectTrack, onDownloadTrack, onCancelDownload, downloadingTracks }) => {
+
+    useEffect(() => {
+        const handleProgress = (event: any, { url, progress }: any) => {
+            console.log(`Progress for ${url}: ${progress}%`);
+        };
+
+        const handleComplete = (event: any, { url, success }: any) => {
+            console.log(`Download ${success ? 'completed' : 'failed'} for ${url}`);
+        };
+
+        if (window.electron && window.electron.ipcRenderer) {
+            window.electron.ipcRenderer.on('download-progress', handleProgress);
+            window.electron.ipcRenderer.on('download-complete', handleComplete);
+        }
+
+        return () => {
+            if (window.electron && window.electron.ipcRenderer) {
+                window.electron.ipcRenderer.removeListener('download-progress', handleProgress);
+                window.electron.ipcRenderer.removeListener('download-complete', handleComplete);
+            }
+        };
+    }, []);
+
     return (
         <Box>
             <Typography variant="h5">재생 목록</Typography>
@@ -26,9 +48,9 @@ const Playlist: React.FC<PlaylistProps> = ({ tracks, onSelectTrack, onDownloadTr
                         )}
                         <Button
                             variant="outlined"
-                            color={downloadingTracks[track.id] !== undefined ? "warning" : "primary"} // 경고 색상 설정
-                            onClick={() => onDownloadTrack(track.id) !== undefined ? onCancelDownload(track.id) : onDownloadTrack(track.id)}>
-                            { downloadingTracks[track.id] !== undefined ? "취소" : "다운로드"}
+                            color={downloadingTracks[track.id] !== undefined ? "warning" : "primary"}
+                            onClick={() => downloadingTracks[track.id] !== undefined ? onCancelDownload(track.id) : onDownloadTrack(track.id)}>
+                            {downloadingTracks[track.id] !== undefined ? "취소" : "다운로드"}
                         </Button>
                     </ListItem>
                 ))}

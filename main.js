@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 
 
 function createWindow() {
@@ -21,23 +21,36 @@ function createWindow() {
 
 app.on('ready', createWindow);
 
-ipcMain.on('download-playlist', (event, url) => {
-  const pythonScriptPath = path.join(__dirname, 'dist', 'pydownloader');  // Python 실행 파일 경로
+// ipc 설정
+ipcMain.on('download-playlist', (event, downloadConfig) => {
 
-  execFile(pythonScriptPath, [url], (error, stdout, stderr) => {
-    if (error) {
-      console.error(`다운로드 오류 발생: ${stderr}`);
-      event.reply('download-status', '다운로드 실패');
-      return;
+  // 실행파일 설정.
+  const pythonScriptPath = path.join(__dirname, 'dist', 'pydownloader');
+  // 실행파일관련 옵션 설정
+  const { url, codec = 'mp3', quality = '192', directory = './downloads' } = downloadConfig;
+  // 실행.
+  const downloadProcess = spawn(pythonScriptPath, [url, codec, quality, directory]);
+  //실행 프로세스 출력
+  downloadProcess.stdout.on('data', (data) => {
+    const message = data.toString();
+
+    if (message.startsWith("progress:")) {
+      const progress = parseFloat(message.replace("progress:", "").trim());
+      event.sender.send('download-progress', { url, progress });
+    } else if (message.trim() === "status:finished") {
+      event.sender.send('download-complete', { url, success: true });
     }
-    console.log(`다운로드 성공: ${stdout}`);
+  });
 
-    // 다운로드 완료 메시지를 프론트엔드로 전달
-    event.reply('download-status', '다운로드 완료');
+  process.stderr.on('data', (data) => {
+    console.error(`stderr: ${data}`);
+    event.sender.send('download-complete', { url, success: false });
+  });
 
-    // 다운로드 경로 추출 및 전달
-    const downloadPath = path.join(__dirname, 'downloads');
-    event.reply('download-path', downloadPath);
+  process.on('close', (code) => {
+    if (code !== 0) {
+      event.sender.send('download-complete', { url, success: false });
+    }
   });
 });
 

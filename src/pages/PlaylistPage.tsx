@@ -1,16 +1,18 @@
 // src/pages/PlaylistPage.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Container } from '@mui/material';
 import Playlist from '../components/Playlist/Playlist';
 import FullPlayer from '../components/Player/FullPlayer';
 import { fetchPlaylist, Track } from '../services/api';
+import {DatabaseContext} from "../App";
 
 const PlaylistPage: React.FC = () => {
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
-    const [playlist, setPlaylist] = useState<Track[]>([]);
+    const [playlist, setPlaylist] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [downloadingTracks, setDownloadingTracks] = useState<{ [key: number]: number }>({});
     const downloadIntervals = useRef<{ [key: number]: NodeJS.Timeout }>({}); // 타이머 저장 객체
+    const dbService = useContext(DatabaseContext);
 
     const handleSelectTrack = (track: Track) => {
         setSelectedTrack(track); // 선택한 트랙 정보를 상태에 저장
@@ -21,7 +23,6 @@ const PlaylistPage: React.FC = () => {
 
         setDownloadingTracks((prev) => ({ ...prev, [trackId]: 0 })); // 진행률 0으로 시작
 
-        // 다운로드 시뮬레이션 (실제 API 사용 시, 여기에서 API 호출)
         const downloadInterval = setInterval((): any => {
             setDownloadingTracks((prev) => {
                 const progress = (prev[trackId] || 0) + 10;
@@ -55,20 +56,47 @@ const PlaylistPage: React.FC = () => {
         console.log(`트랙 ${trackId}의 다운로드가 즉시 취소되었고, 임시 데이터가 삭제되었습니다.`);
     };
 
+    // useEffect(() => {
+    //     const loadPlaylist = async () => {
+    //         try {
+    //             const data = await fetchPlaylist();
+    //             setPlaylist(data);
+    //         } catch (error) {
+    //             console.error("재생 목록을 불러오는 중 오류 발생:", error);
+    //         } finally {
+    //             setLoading(false);
+    //         }
+    //     };
+    //
+    //     loadPlaylist();
+    // }, []);
     useEffect(() => {
-        const loadPlaylist = async () => {
+        const loadPlaylists = async () => {
+            if (!dbService) return;
+
             try {
-                const data = await fetchPlaylist();
-                setPlaylist(data);
+                const playlists = await dbService.getAllPlaylists();
+                setPlaylist(playlists);
             } catch (error) {
-                console.error("재생 목록을 불러오는 중 오류 발생:", error);
-            } finally {
-                setLoading(false);
+                console.error('플레이리스트 로드 실패:', error);
             }
         };
 
-        loadPlaylist();
-    }, []);
+        loadPlaylists();
+    }, [dbService]);
+
+    // const handleAddPlaylist = async (playlistData: Omit<Playlist, 'id'>) => {
+    //     if (!dbService) return;
+    //
+    //     try {
+    //         const id = await dbService.addPlaylist(playlistData);
+    //         // 새로운 플레이리스트 추가 후 목록 새로고침
+    //         const updatedPlaylists = await dbService.getAllPlaylists();
+    //         setPlaylist(updatedPlaylists);
+    //     } catch (error) {
+    //         console.error('플레이리스트 추가 실패:', error);
+    //     }
+    // };
 
     return (
         <Container>
