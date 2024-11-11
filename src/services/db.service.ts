@@ -107,6 +107,20 @@ export class DatabaseService {
         });
     }
 
+    // 모든 Playlist 가져오기 메소드
+    async getAllTracks(): Promise<Playlist[]> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['tracks'], 'readonly');
+            const store = transaction.objectStore('tracks');
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                resolve(request.result as Playlist[]);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
     // Playlist 추가 또는 업데이트 메소드
     async setPlaylist(playlist: Playlist): Promise<void> {
         return new Promise((resolve, reject) => {

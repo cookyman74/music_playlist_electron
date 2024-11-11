@@ -17,6 +17,9 @@ function createWindow() {
   mainWindow.loadURL(
       process.env.ELECTRON_START_URL || `file://${path.join(__dirname, '/build/index.html')}`
   );
+
+  // 개발 도구 열기 (디버깅용)
+  // mainWindow.webContents.openDevTools();
 }
 
 app.on('ready', createWindow);
@@ -32,14 +35,31 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
   const downloadProcess = spawn(pythonScriptPath, [url, codec, quality, directory]);
   //실행 프로세스 출력
   downloadProcess.stdout.on('data', (data) => {
-    const message = data.toString();
+    const lines = data.toString().split('\n');
 
-    if (message.startsWith("progress:")) {
-      const progress = parseFloat(message.replace("progress:", "").trim());
-      event.sender.send('download-progress', { url, progress });
-    } else if (message.trim() === "status:finished") {
-      event.sender.send('download-complete', { url, success: true });
-    }
+    lines.forEach(line => {
+      if (!line.trim()) return;
+
+      console.log('Python 출력:', line);
+
+      try {
+        if (line.startsWith('progress:')) {
+          const progressData = JSON.parse(line.replace('progress:', '').trim());
+          event.sender.send('progress', progressData);
+        }
+        else if (line.startsWith('playlist_info:')) {
+          const playlistInfo = JSON.parse(line.replace('playlist_info:', '').trim());
+          event.sender.send('playlist_info', playlistInfo);
+        }
+        else if (line.startsWith('track_status:')) {
+          const statusInfo = JSON.parse(line.replace('track_status:', '').trim());
+          event.sender.send('track_status', statusInfo);
+        }
+      } catch (error) {
+        console.error('메시지 파싱 에러:', error);
+        console.error('원본 라인:', line);
+      }
+    });
   });
 
   process.stderr.on('data', (data) => {
@@ -51,6 +71,12 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
     if (code !== 0) {
       event.sender.send('download-complete', { url, success: false });
     }
+  });
+
+  // 프로세스 에러 처리
+  downloadProcess.on('error', (error) => {
+    console.error('프로세스 실행 에러:', error);
+    event.sender.send('error', error.message);
   });
 });
 

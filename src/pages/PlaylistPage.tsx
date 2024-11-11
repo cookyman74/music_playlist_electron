@@ -75,7 +75,7 @@ const PlaylistPage: React.FC = () => {
             if (!dbService) return;
 
             try {
-                const playlists = await dbService.getAllPlaylists();
+                const playlists = await dbService.getAllTracks();
                 setPlaylist(playlists);
             } catch (error) {
                 console.error('플레이리스트 로드 실패:', error);
