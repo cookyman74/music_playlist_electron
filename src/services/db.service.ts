@@ -20,14 +20,27 @@ export class DatabaseService {
     //     });
     // }
 
-    async addTrack(track: Omit<Track, 'id'>): Promise<number> {
+    async addTrack(trackData: Omit<Track, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['tracks'], 'readwrite');
             const store = transaction.objectStore('tracks');
+
+            const track = {
+                ...trackData,
+                is_favorite: false, // 기본값 설정
+                created_at: new Date(),
+                updated_at: new Date()
+            };
+
             const request = store.add(track);
 
-            request.onsuccess = () => resolve(request.result as number);
-            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                resolve(request.result as number);
+            };
+
+            request.onerror = () => {
+                reject(new Error('트랙 추가 실패'));
+            };
         });
     }
 
@@ -93,7 +106,7 @@ export class DatabaseService {
     }
 
 
-    // 모든 Playlist 가져오기 메소드
+    // 모든 플레이리스트 가져오기
     async getAllPlaylists(): Promise<Playlist[]> {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['playlists'], 'readonly');
@@ -101,23 +114,103 @@ export class DatabaseService {
             const request = store.getAll();
 
             request.onsuccess = () => {
-                resolve(request.result as Playlist[]);
+                const playlists = request.result;
+                // ID가 없는 플레이리스트는 필터링
+                const validPlaylists = playlists.filter((playlist): playlist is Playlist =>
+                    typeof playlist.id === 'number'
+                );
+                resolve(validPlaylists);
             };
-            request.onerror = () => reject(request.error);
+
+            request.onerror = () => {
+                reject(new Error('플레이리스트 로드 실패'));
+            };
         });
     }
 
-    // 모든 Playlist 가져오기 메소드
-    async getAllTracks(): Promise<Playlist[]> {
+    // 특정 플레이리스트의 모든 트랙 가져오기
+    async getTracksByPlaylistId(playlistId: number): Promise<Track[]> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['tracks'], 'readonly');
+            const store = transaction.objectStore('tracks');
+            const index = store.index('playlist_id');
+            const request = index.getAll(IDBKeyRange.only(playlistId));
+
+            request.onsuccess = () => {
+                const tracks = request.result;
+                // ID가 없는 트랙은 필터링
+                const validTracks = tracks.filter((track): track is Track =>
+                    typeof track.id === 'number'
+                );
+                resolve(validTracks);
+            };
+
+            request.onerror = () => {
+                reject(new Error('트랙 로드 실패'));
+            };
+        });
+    }
+
+    // 즐겨찾기 토글
+    async toggleFavorite(trackId: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['tracks'], 'readwrite');
+            const store = transaction.objectStore('tracks');
+            const request = store.get(trackId);
+
+            request.onsuccess = () => {
+                const track = request.result;
+                if (track) {
+                    track.is_favorite = !track.is_favorite;
+                    store.put(track);
+                    resolve();
+                } else {
+                    reject(new Error('트랙을 찾을 수 없습니다.'));
+                }
+            };
+
+            request.onerror = () => {
+                reject(new Error('즐겨찾기 토글 실패'));
+            };
+        });
+    }
+
+    // 즐겨찾기된 트랙 가져오기
+    async getFavorites(): Promise<Track[]> {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['tracks'], 'readonly');
             const store = transaction.objectStore('tracks');
             const request = store.getAll();
 
             request.onsuccess = () => {
-                resolve(request.result as Playlist[]);
+                const tracks = request.result;
+                // ID가 있고 즐겨찾기된 트랙만 필터링
+                const favorites = tracks.filter((track): track is Track =>
+                    typeof track.id === 'number' && track.is_favorite
+                );
+                resolve(favorites);
             };
-            request.onerror = () => reject(request.error);
+
+            request.onerror = () => {
+                reject(new Error('즐겨찾기 목록 로드 실패'));
+            };
+        });
+    }
+
+
+    // 모든 Playlist 가져오기 메소드
+    async getAllTracks(): Promise<Track[]> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['tracks'], 'readonly');
+            const store = transaction.objectStore('tracks');
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+            request.onerror = () => {
+                reject(new Error('모든 트랙 로드 실패'));
+            };
         });
     }
 
@@ -179,6 +272,95 @@ export class DatabaseService {
             playlistRequest.onerror = () => reject(playlistRequest.error);
         });
     }
+
+    // 플레이리스트 삭제
+    async deletePlaylist(playlistId: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['playlists', 'tracks'], 'readwrite');
+
+            // 플레이리스트 삭제
+            const playlistStore = transaction.objectStore('playlists');
+            playlistStore.delete(playlistId);
+
+            // 관련 트랙들 삭제
+            const trackStore = transaction.objectStore('tracks');
+            const index = trackStore.index('playlist_id');
+            const request = index.getAllKeys(IDBKeyRange.only(playlistId));
+
+            request.onsuccess = () => {
+                const trackKeys = request.result;
+                trackKeys.forEach(key => {
+                    trackStore.delete(key);
+                });
+                resolve();
+            };
+
+            request.onerror = () => {
+                reject(new Error('플레이리스트 삭제 실패'));
+            };
+        });
+    }
+
+    // 플레이리스트 업데이트
+    async updatePlaylist(playlistId: number, updates: Partial<Omit<Playlist, 'id'>>): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['playlists'], 'readwrite');
+            const store = transaction.objectStore('playlists');
+            const request = store.get(playlistId);
+
+            request.onsuccess = () => {
+                const playlist = request.result;
+                if (!playlist) {
+                    reject(new Error('플레이리스트를 찾을 수 없습니다.'));
+                    return;
+                }
+
+                const updatedPlaylist = {
+                    ...playlist,
+                    ...updates,
+                    updated_at: new Date()
+                };
+
+                const putRequest = store.put(updatedPlaylist);
+                putRequest.onsuccess = () => resolve();
+                putRequest.onerror = () => reject(new Error('플레이리스트 업데이트 실패'));
+            };
+
+            request.onerror = () => {
+                reject(new Error('플레이리스트 조회 실패'));
+            };
+        });
+    }
+
+    // 트랙 정보 업데이트
+    async updateTrack(trackId: number, updates: Partial<Track>): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['tracks'], 'readwrite');
+            const store = transaction.objectStore('tracks');
+            const request = store.get(trackId);
+
+            request.onsuccess = () => {
+                const track = request.result;
+                if (track) {
+                    const updatedTrack = {
+                        ...track,
+                        ...updates,
+                        updated_at: new Date()
+                    };
+                    store.put(updatedTrack);
+                    resolve();
+                } else {
+                    reject(new Error('트랙을 찾을 수 없습니다.'));
+                }
+            };
+
+            request.onerror = () => {
+                reject(new Error('트랙 업데이트 실패'));
+            };
+        });
+    }
+
+
 
     async updateTrackStatus(
         trackId: string,
