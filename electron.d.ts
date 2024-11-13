@@ -10,6 +10,7 @@ declare global {
                 invoke: (channel: string, ...args: any[]) => Promise<any>;  // 추가
             };
             getPath: (name: string) => Promise<string>;
+            getAudioUrl: (filePath: string) => Promise<string>;
         };
     }
 }

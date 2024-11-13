@@ -12,7 +12,8 @@ export class DatabaseService {
     }
 
     private getAbsolutePath(relativePath: string): string {
-        return path.resolve(this.baseDirectory, relativePath);
+        // downloads 디렉토리를 포함한 절대 경로 생성
+        return path.resolve(this.baseDirectory, 'downloads', relativePath);
     }
 
     async addTrack(trackData: Omit<Track, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
@@ -223,48 +224,75 @@ export class DatabaseService {
 
     async addPlaylist(playlistInfo: PlaylistInfo): Promise<number> {
         return new Promise((resolve, reject) => {
+            // 'playlists'와 'tracks' 모두를 포함하는 트랜잭션 생성
             const transaction = this.db.transaction(['playlists', 'tracks'], 'readwrite');
-
-            // 플레이리스트 저장
             const playlistStore = transaction.objectStore('playlists');
-            const playlistRequest = playlistStore.add({
-                playlist_id: playlistInfo.playlist_id,
-                title: playlistInfo.title,
-                uploader: playlistInfo.uploader,
-                download_started_at: new Date(),
-            });
+            const trackStore = transaction.objectStore('tracks');
 
-            playlistRequest.onsuccess = async () => {
-                const playlistId = playlistRequest.result as number;
-
-                // 트랙 저장
-                const trackStore = transaction.objectStore('tracks');
-                const trackPromises = playlistInfo.tracks.map(track => {
-                    return new Promise((resolveTrack, rejectTrack) => {
-                        const trackRequest = trackStore.add({
-                            playlist_id: playlistId,
-                            track_id: track.id,
-                            title: track.title,
-                            duration: track.duration,
-                            url: track.url,
-                            download_status: 'pending',
-                            created_at: new Date()
-                        });
-
-                        trackRequest.onsuccess = () => resolveTrack(true);
-                        trackRequest.onerror = () => rejectTrack(trackRequest.error);
-                    });
-                });
-
-                try {
-                    await Promise.all(trackPromises);
-                    resolve(playlistId);
-                } catch (error) {
-                    reject(error);
-                }
+            // 트랜잭션 에러 처리
+            transaction.onerror = () => {
+                reject(new Error('Transaction failed: ' + transaction.error));
             };
 
-            playlistRequest.onerror = () => reject(playlistRequest.error);
+            // 먼저 동일한 playlist_id가 있는지 확인
+            const index = playlistStore.index('playlist_id');
+            const checkRequest = index.get(playlistInfo.playlist_id);
+
+            checkRequest.onsuccess = () => {
+                if (checkRequest.result) {
+                    // 이미 존재하는 플레이리스트면 기존 id 반환
+                    resolve(checkRequest.result.id);
+                    return;
+                }
+
+                // 새로운 플레이리스트 추가
+                const addRequest = playlistStore.add({
+                    playlist_id: playlistInfo.playlist_id,
+                    title: playlistInfo.title,
+                    uploader: playlistInfo.uploader,
+                    source: 'youtube',
+                    download_started_at: new Date(),
+                    created_at: new Date(),
+                    updated_at: new Date()
+                });
+
+                addRequest.onsuccess = () => {
+                    const playlistId = addRequest.result as number;
+
+                    // 트랙 추가
+                    const trackPromises = playlistInfo.tracks.map(track => {
+                        return new Promise<void>((resolveTrack, rejectTrack) => {
+                            const trackRequest = trackStore.add({
+                                playlist_id: playlistId,
+                                track_id: track.id,
+                                title: track.title,
+                                duration: track.duration,
+                                url: track.url,
+                                download_status: 'pending',
+                                is_favorite: false,
+                                created_at: new Date(),
+                                updated_at: new Date()
+                            });
+
+                            trackRequest.onsuccess = () => resolveTrack();
+                            trackRequest.onerror = () => rejectTrack(trackRequest.error);
+                        });
+                    });
+
+                    // 모든 트랙 추가 완료 대기
+                    Promise.all(trackPromises)
+                        .then(() => resolve(playlistId))
+                        .catch(error => reject(error));
+                };
+
+                addRequest.onerror = () => {
+                    reject(new Error('플레이리스트 추가 실패: ' + addRequest.error));
+                };
+            };
+
+            checkRequest.onerror = () => {
+                reject(new Error('플레이리스트 중복 확인 실패: ' + checkRequest.error));
+            };
         });
     }
 
@@ -365,15 +393,13 @@ export class DatabaseService {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['tracks'], 'readwrite');
             const store = transaction.objectStore('tracks');
-
-            // track_id 인덱스가 없을 수 있으므로 전체 트랙을 가져와서 필터링
-            const request = store.getAll();
+            const index = store.index('track_id');
+            const request = index.get(trackId);
 
             request.onsuccess = () => {
-                const tracks = request.result;
-                const track = tracks.find(t => t.track_id === trackId);
-
+                const track = request.result;
                 if (track) {
+                    // 파일 경로에 'downloads' 디렉토리를 포함하여 절대 경로 생성
                     const absoluteFilePath = filePath ? this.getAbsolutePath(filePath) : null;
                     const absoluteThumbnailPath = thumbnailPath ? this.getAbsolutePath(thumbnailPath) : null;
 
@@ -400,6 +426,7 @@ export class DatabaseService {
             request.onerror = () => reject(request.error);
         });
     }
+
 
     // Track 진행률 업데이트를 위한 새로운 메서드
     async updateTrackProgress(

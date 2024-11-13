@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld('electron', {
         invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),  // 추가
     },
     getPath: (name) => ipcRenderer.invoke('get-path', name),
+    getAudioUrl: (filePath) => ipcRenderer.invoke('get-audio-url', filePath)
 });

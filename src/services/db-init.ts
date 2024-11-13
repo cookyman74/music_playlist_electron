@@ -23,11 +23,12 @@ export async function initDB(): Promise<DBSchema> {
             // 플레이리스트 스토어
             if (!db.objectStoreNames.contains("playlists")) {
                 const playlistStore = db.createObjectStore("playlists", { keyPath: "id", autoIncrement: true });
+                playlistStore.createIndex("playlist_id", "playlist_id", { unique: true });
                 playlistStore.createIndex("title", "title", { unique: false });
-                playlistStore.createIndex("url", "url", { unique: true });
-                playlistStore.createIndex("source", "source", { unique: false });
-                playlistStore.createIndex("createdAt", "createdAt", { unique: false });
+                playlistStore.createIndex("created_at", "created_at", { unique: false });
+                playlistStore.createIndex("updated_at", "updated_at", { unique: false });
             }
+
 
             // 트랙 스토어
             if (!db.objectStoreNames.contains("tracks")) {
@@ -37,6 +38,7 @@ export async function initDB(): Promise<DBSchema> {
                 trackStore.createIndex("artist", "artist", { unique: false });
                 trackStore.createIndex("url", "url", { unique: false });
                 trackStore.createIndex("file_path", "file_path", { unique: false });
+                trackStore.createIndex("download_status", "download_status", { unique: false });
                 trackStore.createIndex("track_id", "track_id", { unique: false });  // track_id 인덱스 추가
                 trackStore.createIndex("createdAt", "createdAt", { unique: false });
             }

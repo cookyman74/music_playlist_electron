@@ -42,6 +42,12 @@ const DownloadButton: React.FC = () => {
 
         const handlePlaylistInfo = async (event: any, playlistInfo: PlaylistInfo) => {
             try {
+                // 이미 다운로드 중인지 확인
+                if (currentPlaylist?.playlist_id === playlistInfo.playlist_id) {
+                    console.log('이미 다운로드 중인 플레이리스트입니다.');
+                    return;
+                }
+
                 setCurrentPlaylist(playlistInfo);
                 setTracks(playlistInfo.tracks.map(track => ({
                     ...track,

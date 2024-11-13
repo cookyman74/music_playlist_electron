@@ -19,49 +19,84 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
     const [isMuted, setIsMuted] = useState(false);
 
     useEffect(() => {
-        if (!track.file_path && !track.absolute_file_path) {
-            if (onError) {
-                onError(new Error('재생할 수 있는 오디오 파일이 없습니다.'));
+        let mounted = true;
+
+        const initAudio = async () => {
+            try {
+                // 파일 경로 체크
+                const filePath = track.absolute_file_path || track.file_path;
+                if (!filePath) {
+                    throw new Error('재생할 수 있는 오디오 파일이 없습니다.');
+                }
+
+                // Electron을 통해 오디오 URL 가져오기
+                const audioUrl = await window.electron.getAudioUrl(filePath);
+                if (!mounted) return;
+
+                // 기존 오디오 정리
+                if (audioRef.current) {
+                    audioRef.current.pause();
+                    audioRef.current.src = '';
+                }
+
+                // 새 오디오 인스턴스 생성 및 설정
+                const audio = new Audio(audioUrl);
+                audioRef.current = audio;
+
+                // 오디오 이벤트 리스너 설정
+                const setupAudioListeners = () => {
+                    audio.addEventListener('loadedmetadata', () => {
+                        if (mounted) {
+                            setDuration(audio.duration);
+                        }
+                    });
+
+                    audio.addEventListener('timeupdate', () => {
+                        if (mounted) {
+                            setCurrentTime(audio.currentTime);
+                        }
+                    });
+
+                    audio.addEventListener('ended', () => {
+                        if (mounted) {
+                            setIsPlaying(false);
+                            if (onEnded) onEnded();
+                        }
+                    });
+
+                    audio.addEventListener('error', (e) => {
+                        if (!mounted) return;
+                        console.error('Audio error:', e);
+
+                        const errorMessage = audio.error
+                            ? `오디오 재생 오류 (${audio.error.code}): ${filePath}`
+                            : '알 수 없는 오디오 재생 오류';
+
+                        if (onError) onError(new Error(errorMessage));
+                    });
+                };
+
+                setupAudioListeners();
+                audio.volume = volume;
+
+                console.log('Audio initialized with URL:', audioUrl);
+
+            } catch (error) {
+                console.error('Audio initialization error:', error);
+                if (mounted && onError) {
+                    onError(error instanceof Error ? error : new Error('오디오 초기화 실패'));
+                }
             }
-            return;
-        }
-
-        const audio = new Audio(track.absolute_file_path || track.file_path);
-        audioRef.current = audio;
-
-        const handleLoadedMetadata = () => {
-            setDuration(audio.duration);
         };
 
-        const handleTimeUpdate = () => {
-            setCurrentTime(audio.currentTime);
-        };
-
-        const handleEnded = () => {
-            setIsPlaying(false);
-            if (onEnded) onEnded();
-        };
-
-        const handleError = (e: ErrorEvent) => {
-            console.error('오디오 로드 실패:', e);
-            if (onError) {
-                onError(new Error(`오디오 파일 재생 실패: ${e.message}`));
-            }
-        };
-
-        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-        audio.addEventListener('timeupdate', handleTimeUpdate);
-        audio.addEventListener('ended', handleEnded);
-        audio.addEventListener('error', handleError);
+        initAudio();
 
         return () => {
-            audio.pause();
-            audio.src = '';
-            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-            audio.removeEventListener('timeupdate', handleTimeUpdate);
-            audio.removeEventListener('ended', handleEnded);
-            audio.removeEventListener('error', handleError);
-            audioRef.current = null;
+            mounted = false;
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = '';
+            }
         };
     }, [track.file_path, track.absolute_file_path]);
 

@@ -32,20 +32,38 @@ class PlaylistDownloader:
         except Exception as e:
             print(f"error:{json.dumps({'error': str(e)})}", flush=True)
 
-    def download_thumbnail(self, track_id: str, thumbnail_url: str) -> str:
+    def download_thumbnail(self, track_id: str, thumbnail_url: str | None) -> str:
         """썸네일 이미지를 다운로드하고 경로를 반환"""
         try:
+            if not thumbnail_url:
+                self.__print_message('error', {
+                    'track_id': track_id,
+                    'thumbnail_error': 'No thumbnail URL provided'
+                })
+                return ""
+
+            # sanitize track_id
+            sanitized_track_id = ''.join(c for c in track_id if c.isalnum() or c in ('-', '_'))
+            thumbnail_path = os.path.join(self.thumbnail_directory, f"{sanitized_track_id}.jpg")
+
             response = requests.get(thumbnail_url, stream=True)
             if response.status_code == 200:
-                thumbnail_path = os.path.join(self.thumbnail_directory, f"{track_id}.jpg")
                 with open(thumbnail_path, 'wb') as f:
-                    for chunk in response.iter_content(1024):
+                    for chunk in response.iter_content(chunk_size=1024):
                         f.write(chunk)
                 return os.path.relpath(thumbnail_path, self.download_directory)
             else:
-                raise Exception(f"썸네일 다운로드 실패: 상태 코드 {response.status_code}")
+                self.__print_message('error', {
+                    'track_id': track_id,
+                    'thumbnail_error': f'Failed to download thumbnail: Status code {response.status_code}'
+                })
+                return ""
+
         except Exception as e:
-            self.__print_message('error', {'track_id': track_id, 'thumbnail_error': str(e)})
+            self.__print_message('error', {
+                'track_id': track_id,
+                'thumbnail_error': str(e)
+            })
             return ""
 
     def progress_hook(self, progress_data: Dict[str, Any], track_id: str) -> None:
@@ -59,12 +77,11 @@ class PlaylistDownloader:
                     progress = (downloaded / total) * 100
                     self.__print_message('progress', {
                         'track_id': track_id,
-                        'status': 'success',
-                        'file_path': relative_path,
-                        'absolute_path': absolute_path,  # 유지
-                        'thumbnail_path': thumbnail_path,
-                        'title': actual_info.get('title', track['title']),
-                        'duration': actual_info.get('duration'),
+                        'progress': progress,
+                        'downloaded': downloaded,
+                        'total': total,
+                        'speed': progress_data.get('speed', 0),
+                        'eta': progress_data.get('eta', 0)
                     })
 
             elif progress_data['status'] == 'finished':
@@ -178,7 +195,7 @@ class PlaylistDownloader:
         """재생목록 정보를 추출하는 함수"""
         info_opts = {
             'quiet': True,
-            'extract_flat': True,
+            'extract_flat': False,  # 전체 정보를 가져오기 위해 False로 변경
             'skip_download': True,
         }
 
@@ -196,7 +213,9 @@ class PlaylistDownloader:
                         'title': self.sanitize_filename(entry.get('title', 'Unknown Title')),
                         'duration': entry.get('duration'),
                         'url': f"https://youtube.com/watch?v={entry.get('id')}",
-                        'thumbnail_url': entry.get('thumbnail')
+                        'thumbnail_url': entry.get('thumbnail') or  # 먼저 'thumbnail' 필드 확인
+                                         (entry.get('thumbnails', [{}])[0].get('url') if entry.get(
+                                             'thumbnails') else None)  # 없으면 thumbnails 배열 확인
                     } for entry in playlist_info.get('entries', [])]
                 }
 

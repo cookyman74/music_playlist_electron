@@ -1,8 +1,23 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain , protocol} = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
-const fs = require('fs/promises');
+const fs = require('fs');
 
+const util = require('util');
+const access = util.promisify(fs.access);
+const stat = util.promisify(fs.stat);
+
+// 스키마 등록을 앱 시작 전에 수행
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'audio',
+    privileges: {
+      standard: true,
+      supportFetchAPI: true,
+      stream: true
+    }
+  }
+]);
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -25,7 +40,68 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+// 프로토콜 등록 함수
+function registerAudioProtocol() {
+  protocol.handle('audio', async (request) => {
+    try {
+      const filePath = decodeURI(request.url.slice('audio://'.length));
+
+      // 파일 존재 및 접근 권한 확인
+      await access(filePath, fs.constants.R_OK);
+      const stats = await stat(filePath);
+
+      if (!stats.isFile()) {
+        throw new Error('Not a file');
+      }
+
+      return new Response(fs.createReadStream(filePath), {
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': stats.size.toString(),
+          'Accept-Ranges': 'bytes'
+        }
+      });
+    } catch (error) {
+      console.error('Protocol error:', error);
+      return new Response(null, {
+        status: 404,
+        statusText: 'Not Found'
+      });
+    }
+  });
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  registerAudioProtocol();
+
+  // IPC 핸들러
+  ipcMain.handle('get-audio-url', async (_, filePath) => {
+    try {
+      await access(filePath, fs.constants.R_OK);
+      const stats = await stat(filePath);
+
+      if (!stats.isFile()) {
+        throw new Error(`Not a file: ${filePath}`);
+      }
+
+      console.log('File found and accessible:', filePath);
+      console.log('File stats:', {
+        size: stats.size,
+        mode: stats.mode
+      });
+
+      const audioUrl = `audio://${encodeURI(filePath)}`;
+      console.log('Generated audio URL:', audioUrl);
+
+      return audioUrl;
+    } catch (error) {
+      console.error('File access error:', error);
+      throw error;
+    }
+  });
+});
+
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -37,6 +113,17 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+// IPC 핸들러 추가
+ipcMain.handle('get-audio-file', (event, filePath) => {
+  return `localfile://${filePath}`;
 });
 
 // IPC 핸들러 설정
