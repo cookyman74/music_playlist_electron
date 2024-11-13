@@ -1,4 +1,4 @@
-// src/pages/PlaylistPage.tsx
+// pages/PlaylistPage.tsx (Part 1)
 import React, { useState, useContext, useEffect } from 'react';
 import {
     Box,
@@ -19,6 +19,7 @@ import {
     TableRow,
     Button,
     Drawer,
+    Alert,
 } from '@mui/material';
 import {
     PlayArrow,
@@ -35,9 +36,10 @@ import {
 import { DatabaseContext } from '../App';
 import { Track, Playlist } from '../types';
 import DefaultCover from "../components/DefaultCover";
-import { formatDuration, shuffleArray } from '../utils/audioUtils';
+import AudioPlayer from '../components/Player/AudioPlayer';
+import {formatDuration} from "../utils/audioUtils";
 
-const ROOT_BOX_HEIGHT = 'calc(100vh - 64px)'; // 상단바 높이(64px) 제외
+const ROOT_BOX_HEIGHT = 'calc(100vh - 64px)';
 const drawerWidth = 240;
 
 // 플레이리스트 타입 정의
@@ -59,6 +61,7 @@ const PlaylistPage: React.FC = () => {
     const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [shuffledTracks, setShuffledTracks] = useState<Track[]>([]);
+    const [audioError, setAudioError] = useState<string | null>(null);
 
     // 트랙 로드 함수
     const loadTracks = async () => {
@@ -137,7 +140,7 @@ const PlaylistPage: React.FC = () => {
     const CoverImage = ({ track, size = 200 }: { track?: Track; size?: number }) => {
         const [imageError, setImageError] = useState(false);
 
-        if (!track?.thumbnail_path || imageError) {
+        if (!track?.absolute_thumbnail_path || imageError) {
             return <DefaultCover width={size} height={size} />;
         }
 
@@ -153,7 +156,7 @@ const PlaylistPage: React.FC = () => {
                 }}
             >
                 <img
-                    src={track.thumbnail_path}
+                    src={track.absolute_thumbnail_path}
                     alt="Cover"
                     style={{
                         width: '100%',
@@ -166,133 +169,33 @@ const PlaylistPage: React.FC = () => {
         );
     };
 
-    // 재생 관련 핸들러
     const handlePlayPlaylist = () => {
         if (tracks.length > 0) {
-            if (currentTrack?.id === tracks[0].id) {
-                setIsPlaying(!isPlaying);
-            } else {
-                setCurrentTrack(tracks[0]);
-                setIsPlaying(true);
-            }
+            handlePlayTrack(tracks[0]);
         }
     };
 
     const handleShufflePlaylist = () => {
         if (tracks.length > 0) {
-            const randomIndex = Math.floor(Math.random() * tracks.length);
-            setCurrentTrack(tracks[randomIndex]);
-            setIsPlaying(true);
+            const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+            setShuffledTracks(shuffled);
+            handlePlayTrack(shuffled[0]);
         }
     };
 
-    // 다음 트랙 재생
-    const playNextTrack = () => {
-        if (!currentTrack || tracks.length === 0) return;
-
+    const handleTrackEnded = () => {
         const currentList = shuffledTracks.length > 0 ? shuffledTracks : tracks;
-        const currentIndex = currentList.findIndex(track => track.id === currentTrack.id);
+        const currentIndex = currentList.findIndex(track => track.id === currentTrack?.id);
 
         if (currentIndex < currentList.length - 1) {
-            setCurrentTrack(currentList[currentIndex + 1]);
-        } else {
-            // 마지막 트랙이면 처음으로
-            setCurrentTrack(currentList[0]);
+            handlePlayTrack(currentList[currentIndex + 1]);
         }
     };
 
-    // 이전 트랙 재생
-    const playPreviousTrack = () => {
-        if (!currentTrack || tracks.length === 0) return;
-
-        const currentList = shuffledTracks.length > 0 ? shuffledTracks : tracks;
-        const currentIndex = currentList.findIndex(track => track.id === currentTrack.id);
-
-        if (currentIndex > 0) {
-            setCurrentTrack(currentList[currentIndex - 1]);
-        } else {
-            // 첫 트랙이면 마지막으로
-            setCurrentTrack(currentList[currentList.length - 1]);
-        }
+    const handleAudioError = (error: Error) => {
+        setAudioError(error.message);
+        setIsPlaying(false);
     };
-
-    // 시간 포맷 유틸리티
-    const formatDuration = (duration: number | undefined): string => {
-        if (!duration) return '--:--';
-        const minutes = Math.floor(duration / 60);
-        const seconds = Math.floor(duration % 60);
-        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    };
-
-    // 플레이리스트 헤더 섹션
-    const PlaylistHeader = () => (
-        <Paper sx={{ p: 2, mb: 2 }}>
-            <Grid container spacing={2} alignItems="center">
-                <Grid item>
-                    <CoverImage track={tracks[0]} />
-                </Grid>
-                <Grid item xs>
-                    <Typography variant="h4">{viewState.title}</Typography>
-                    <Typography variant="subtitle1" color="text.secondary">
-                        {tracks.length} 트랙
-                    </Typography>
-                    <Box sx={{ mt: 2 }}>
-                        <Button
-                            variant="contained"
-                            startIcon={isPlaying ? <Pause /> : <PlayArrow />}
-                            onClick={() => handlePlayPlaylist()}
-                            sx={{ mr: 1 }}
-                        >
-                            {isPlaying ? '일시정지' : '재생'}
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            startIcon={<Shuffle />}
-                            onClick={() => handleShufflePlaylist()}
-                        >
-                            셔플
-                        </Button>
-                    </Box>
-                </Grid>
-            </Grid>
-        </Paper>
-    );
-
-    // 트랙 리스트 아이템
-    const TrackListItem = ({ track }: { track: Track }) => (
-        <TableRow hover selected={currentTrack?.id === track.id}>
-            <TableCell padding="checkbox">
-                <IconButton onClick={() => handlePlayTrack(track)}>
-                    {currentTrack?.id === track.id && isPlaying ?
-                        <Pause /> : <PlayArrow />}
-                </IconButton>
-            </TableCell>
-            <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <CoverImage track={track} size={40} />
-                    <Typography sx={{ ml: 4 }}>{track.title}</Typography>
-                </Box>
-            </TableCell>
-            <TableCell>{track.artist}</TableCell>
-            <TableCell>{formatDuration(track.duration)}</TableCell>
-            <TableCell align="right">
-                <IconButton onClick={() => handleToggleFavorite(track)}>
-                    {track.is_favorite ?
-                        <Star color="primary" /> : <StarBorder />}
-                </IconButton>
-                <IconButton disabled>
-                    {track.download_status === 'completed' ? (
-                        <Download color="success" />
-                    ) : track.download_status === 'downloading' ? (
-                        <Download color="action" />
-                    ) : (
-                        <Download />
-                    )}
-                </IconButton>
-            </TableCell>
-        </TableRow>
-    );
-
 
     return (
         <Box sx={{ display: 'flex', height: ROOT_BOX_HEIGHT, marginTop: '64px' }}>
@@ -360,7 +263,7 @@ const PlaylistPage: React.FC = () => {
                 <Paper sx={{ p: 2, mb: 2 }}>
                     <Grid container spacing={2} alignItems="center">
                         <Grid item>
-                            <CoverImage track={tracks[0]} />
+                            <CoverImage track={currentTrack || tracks[0]} />
                         </Grid>
                         <Grid item xs>
                             <Typography variant="h4">{viewState.title}</Typography>
@@ -371,7 +274,7 @@ const PlaylistPage: React.FC = () => {
                                 <Button
                                     variant="contained"
                                     startIcon={isPlaying ? <Pause /> : <PlayArrow />}
-                                    onClick={() => {/* 재생 핸들러 */}}
+                                    onClick={handlePlayPlaylist}
                                     sx={{ mr: 1 }}
                                 >
                                     {isPlaying ? '일시정지' : '재생'}
@@ -379,7 +282,7 @@ const PlaylistPage: React.FC = () => {
                                 <Button
                                     variant="outlined"
                                     startIcon={<Shuffle />}
-                                    onClick={() => {/* 셔플 재생 핸들러 */}}
+                                    onClick={handleShufflePlaylist}
                                 >
                                     셔플
                                 </Button>
@@ -388,7 +291,20 @@ const PlaylistPage: React.FC = () => {
                     </Grid>
                 </Paper>
 
-                {/* 트랙 리스트 */}
+                {currentTrack && (
+                    <AudioPlayer
+                        track={currentTrack}
+                        onEnded={handleTrackEnded}
+                        onError={handleAudioError}
+                    />
+                )}
+
+                {audioError && (
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                        {audioError}
+                    </Alert>
+                )}
+
                 <TableContainer component={Paper}>
                     <Table>
                         <TableHead>
@@ -419,20 +335,22 @@ const PlaylistPage: React.FC = () => {
                                             <Typography sx={{ ml: 2 }}>{track.title}</Typography>
                                         </Box>
                                     </TableCell>
-                                    <TableCell>{track.artist || 'youtube'}</TableCell>
-                                    <TableCell>{track.duration}</TableCell>
+                                    <TableCell>{track.artist || 'Unknown'}</TableCell>
+                                    <TableCell>{formatDuration(track.duration)}</TableCell>
                                     <TableCell align="right">
                                         <IconButton onClick={() => handleToggleFavorite(track)}>
                                             {track.is_favorite ?
                                                 <Star color="primary" /> : <StarBorder />}
                                         </IconButton>
-                                        {track.download_status === 'completed' ? (
-                                            <Download color="success" />
-                                        ) : track.download_status === 'downloading' ? (
-                                            <Download color="action" />
-                                        ) : (
-                                            <Download />
-                                        )}
+                                        <IconButton disabled={!track.absolute_file_path}>
+                                            {track.download_status === 'completed' ? (
+                                                <Download color="success" />
+                                            ) : track.download_status === 'downloading' ? (
+                                                <Download color="action" />
+                                            ) : (
+                                                <Download />
+                                            )}
+                                        </IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}

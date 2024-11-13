@@ -1,16 +1,18 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const fs = require('fs/promises');
 
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 600,
+    width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),  // preload.js 설정
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       enableRemoteModule: false,
+      nodeIntegration: false
     },
   });
 
@@ -18,13 +20,41 @@ function createWindow() {
       process.env.ELECTRON_START_URL || `file://${path.join(__dirname, '/build/index.html')}`
   );
 
-  // 개발 도구 열기 (디버깅용)
-  // mainWindow.webContents.openDevTools();
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
 }
 
-app.on('ready', createWindow);
+app.whenReady().then(createWindow);
 
-// ipc 설정
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+
+// IPC 핸들러 설정
+ipcMain.handle('get-path', (event, name) => {
+  return app.getPath(name);
+});
+
+// 디렉토리 생성 핸들러 추가
+ipcMain.handle('ensure-directory', async (event, directoryPath) => {
+  try {
+    await fs.mkdir(directoryPath, { recursive: true });
+    return true;
+  } catch (error) {
+    console.error('디렉토리 생성 실패:', error);
+    throw error;
+  }
+});
+
 ipcMain.on('download-playlist', (event, downloadConfig) => {
 
   // 실행파일 설정.
@@ -36,7 +66,6 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
   //실행 프로세스 출력
   downloadProcess.stdout.on('data', (data) => {
     const lines = data.toString().split('\n');
-
     lines.forEach(line => {
       if (!line.trim()) return;
 
@@ -62,24 +91,39 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
     });
   });
 
-  process.stderr.on('data', (data) => {
+  // stderr 처리 - downloadProcess에 연결
+  downloadProcess.stderr.on('data', (data) => {
     console.error(`stderr: ${data}`);
-    event.sender.send('download-complete', { url, success: false });
+    event.sender.send('download-error', {
+      url,
+      success: false,
+      error: data.toString()
+    });
   });
 
-  process.on('close', (code) => {
-    if (code !== 0) {
-      event.sender.send('download-complete', { url, success: false });
+  // 프로세스 종료 처리 - downloadProcess에 연결
+  downloadProcess.on('close', (code) => {
+    console.log(`다운로드 프로세스 종료. 종료 코드: ${code}`);
+    if (code === 0) {
+      event.sender.send('download-complete', {
+        url,
+        success: true
+      });
+    } else {
+      event.sender.send('download-complete', {
+        url,
+        success: false,
+        error: `Process exited with code ${code}`
+      });
     }
   });
 
   // 프로세스 에러 처리
   downloadProcess.on('error', (error) => {
     console.error('프로세스 실행 에러:', error);
-    event.sender.send('error', error.message);
+    event.sender.send('error', {
+      type: 'process_error',
+      message: error.message
+    });
   });
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
 });

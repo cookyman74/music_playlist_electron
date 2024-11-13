@@ -1,29 +1,31 @@
-import {Box} from "@mui/material";
-import {LibraryMusic} from "@mui/icons-material";
+// components/DefaultCover.tsx
+import React from 'react';
+import { Box } from '@mui/material';
+import { Album } from '@mui/icons-material';
 
 interface DefaultCoverProps {
-    width?: number | string;
-    height?: number | string;
+    width?: number;
+    height?: number;
 }
 
-const DefaultCover: React.FC<DefaultCoverProps> = ({ width = '100%', height = '100%' }) => {
+const DefaultCover: React.FC<DefaultCoverProps> = ({ width = 200, height = 200 }) => {
     return (
         <Box
             sx={{
                 width,
                 height,
-                backgroundColor: '#e0e0e0',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                backgroundColor: 'action.hover',
                 borderRadius: 1,
             }}
         >
-            <LibraryMusic
+            <Album
                 sx={{
-                    width: '50%',
-                    height: '50%',
-                    color: '#9e9e9e'
+                    width: width * 0.5,
+                    height: height * 0.5,
+                    color: 'action.active'
                 }}
             />
         </Box>

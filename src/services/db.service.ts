@@ -1,24 +1,19 @@
 // services/db.service.ts
-import {Track, Playlist, Settings, Download, PlaylistInfo} from '../types';
+import { Track, Playlist, Settings, PlaylistInfo } from '../types';
+import path from 'path-browserify';
 
 export class DatabaseService {
     private db: IDBDatabase;
+    private baseDirectory: string;
 
-    constructor(db: IDBDatabase) {
+    constructor(db: IDBDatabase, baseDirectory: string) {
         this.db = db;
+        this.baseDirectory = baseDirectory;
     }
 
-    // Playlist 관련 메서드
-    // async addPlaylist(playlist: Omit<Playlist, 'id'>): Promise<number> {
-    //     return new Promise((resolve, reject) => {
-    //         const transaction = this.db.transaction(['playlists'], 'readwrite');
-    //         const store = transaction.objectStore('playlists');
-    //         const request = store.add(playlist);
-    //
-    //         request.onsuccess = () => resolve(request.result as number);
-    //         request.onerror = () => reject(request.error);
-    //     });
-    // }
+    private getAbsolutePath(relativePath: string): string {
+        return path.resolve(this.baseDirectory, relativePath);
+    }
 
     async addTrack(trackData: Omit<Track, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
         return new Promise((resolve, reject) => {
@@ -27,7 +22,7 @@ export class DatabaseService {
 
             const track = {
                 ...trackData,
-                is_favorite: false, // 기본값 설정
+                is_favorite: false,
                 created_at: new Date(),
                 updated_at: new Date()
             };
@@ -75,7 +70,7 @@ export class DatabaseService {
 
                 // 기본값과 병합
                 const defaultSettings: Settings = {
-                    downloadPath: './downloads',
+                    downloadPath: this.baseDirectory,
                     preferredCodec: 'mp3',
                     preferredQuality: '192',
                     autoDownload: false,
@@ -137,12 +132,12 @@ export class DatabaseService {
             const request = index.getAll(IDBKeyRange.only(playlistId));
 
             request.onsuccess = () => {
-                const tracks = request.result;
-                // ID가 없는 트랙은 필터링
-                const validTracks = tracks.filter((track): track is Track =>
-                    typeof track.id === 'number'
-                );
-                resolve(validTracks);
+                const tracks = request.result.map(track => ({
+                    ...track,
+                    absolute_file_path: track.file_path ? this.getAbsolutePath(track.file_path) : undefined,
+                    absolute_thumbnail_path: track.thumbnail_path ? this.getAbsolutePath(track.thumbnail_path) : undefined
+                }));
+                resolve(tracks);
             };
 
             request.onerror = () => {
@@ -360,10 +355,8 @@ export class DatabaseService {
         });
     }
 
-
-
     async updateTrackStatus(
-        trackId: string,
+        trackId: number,  // number 타입으로 변경
         status: 'completed' | 'failed',
         filePath?: string | null,
         thumbnailPath?: string | null,
@@ -379,18 +372,22 @@ export class DatabaseService {
             request.onsuccess = () => {
                 const track = request.result;
                 if (track) {
+                    const absoluteFilePath = filePath ? this.getAbsolutePath(filePath) : null;
+                    const absoluteThumbnailPath = thumbnailPath ? this.getAbsolutePath(thumbnailPath) : null;
+
                     const updatedTrack = {
                         ...track,
                         download_status: status,
-                        file_path: filePath || track.file_path,
-                        thumbnail_path: thumbnailPath || track.thumbnail_path,
+                        file_path: filePath,
+                        absolute_file_path: absoluteFilePath,  // 절대 경로 추가
+                        thumbnail_path: thumbnailPath,
+                        absolute_thumbnail_path: absoluteThumbnailPath,  // 절대 경로 추가
                         error: error || null,
                         completed_at: new Date(),
                         updated_at: new Date()
                     };
 
                     const updateRequest = store.put(updatedTrack);
-
                     updateRequest.onsuccess = () => resolve();
                     updateRequest.onerror = () => reject(updateRequest.error);
                 } else {
@@ -399,9 +396,6 @@ export class DatabaseService {
             };
 
             request.onerror = () => reject(request.error);
-
-            transaction.oncomplete = () => resolve();
-            transaction.onerror = () => reject(transaction.error);
         });
     }
 

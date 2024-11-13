@@ -1,5 +1,5 @@
 // services/db-init.ts
-import { Track, Playlist, Settings, Download, User } from '../types';
+import { Track, Playlist, Settings, Download } from '../types';
 
 interface DBSchema extends IDBDatabase {
     transaction(storeNames: string[], mode?: IDBTransactionMode): IDBTransaction;
@@ -71,11 +71,11 @@ export async function initDB(): Promise<DBSchema> {
             }
 
             // 사용자 스토어
-            if (!db.objectStoreNames.contains("users")) {
-                const userStore = db.createObjectStore("users", { keyPath: "id", autoIncrement: true });
-                userStore.createIndex("name", "name", { unique: true });
-                userStore.createIndex("createdAt", "createdAt", { unique: false });
-            }
+            // if (!db.objectStoreNames.contains("users")) {
+            //     const userStore = db.createObjectStore("users", { keyPath: "id", autoIncrement: true });
+            //     userStore.createIndex("name", "name", { unique: true });
+            //     userStore.createIndex("createdAt", "createdAt", { unique: false });
+            // }
 
             console.log("데이터베이스 스키마가 성공적으로 초기화되었습니다.");
         };

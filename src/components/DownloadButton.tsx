@@ -1,3 +1,4 @@
+// components/DownloadButton.tsx
 import React, { useState, useContext, useEffect } from "react";
 import {
     Container,
@@ -36,11 +37,9 @@ const DownloadButton: React.FC = () => {
     const [currentPlaylist, setCurrentPlaylist] = useState<PlaylistInfo | null>(null);
     const [tracks, setTracks] = useState<TrackInfo[]>([]);
 
-    // 이벤트 리스너 설정
     useEffect(() => {
         if (!window.electron) return;
 
-        // 재생목록 정보 수신
         const handlePlaylistInfo = async (event: any, playlistInfo: PlaylistInfo) => {
             try {
                 setCurrentPlaylist(playlistInfo);
@@ -50,7 +49,6 @@ const DownloadButton: React.FC = () => {
                     progress: 0
                 })));
 
-                // DB에 재생목록 정보 저장
                 if (dbService) {
                     await dbService.addPlaylist(playlistInfo);
                 }
@@ -63,19 +61,20 @@ const DownloadButton: React.FC = () => {
             }
         };
 
-        // 다운로드 진행상태 수신
         const handleProgress = async (event: any, progressData: any) => {
             try {
                 const { track_id, progress } = progressData;
 
-                // 트랙 진행상태 업데이트
                 setTracks(prev => prev.map(track =>
                     track.id === track_id
-                        ? { ...track, progress, download_status: 'downloading' }
+                        ? {
+                            ...track,
+                            progress,
+                            download_status: 'downloading'
+                        }
                         : track
                 ));
 
-                // DB에 진행상태 저장
                 if (dbService) {
                     await dbService.updateTrackProgress(track_id, progress);
                 }
@@ -91,12 +90,10 @@ const DownloadButton: React.FC = () => {
             }
         };
 
-        // 트랙 상태 업데이트 수신
         const handleTrackStatus = async (event: any, trackStatus: any) => {
             try {
-                const { track_id, status, file_path, thumbnail_path, error } = trackStatus;
+                const { track_id, status, file_path, absolute_file_path, thumbnail_path, error } = trackStatus;
 
-                // 트랙 상태 업데이트
                 setTracks(prev => prev.map(track =>
                     track.id === track_id
                         ? {
@@ -104,12 +101,12 @@ const DownloadButton: React.FC = () => {
                             download_status: status === 'success' ? 'completed' : 'failed',
                             error: error,
                             file_path: file_path,
+                            absolute_file_path: absolute_file_path,
                             thumbnail_path: thumbnail_path
                         }
                         : track
                 ));
 
-                // DB에 상태 저장
                 if (dbService) {
                     await dbService.updateTrackStatus(
                         track_id,
@@ -124,21 +121,30 @@ const DownloadButton: React.FC = () => {
             }
         };
 
+        const handleDownloadError = (event: any, error: any) => {
+            setDownloadStatus(prev => ({
+                ...prev,
+                isDownloading: false,
+                error: error.message || '다운로드 중 오류가 발생했습니다.'
+            }));
+        };
+
         // 이벤트 리스너 등록
         window.electron.ipcRenderer.on("playlist_info", handlePlaylistInfo);
         window.electron.ipcRenderer.on("progress", handleProgress);
         window.electron.ipcRenderer.on("track_status", handleTrackStatus);
+        window.electron.ipcRenderer.on("error", handleDownloadError);
 
         // 클린업 함수
         return () => {
             window.electron.ipcRenderer.removeListener("playlist_info", handlePlaylistInfo);
             window.electron.ipcRenderer.removeListener("progress", handleProgress);
             window.electron.ipcRenderer.removeListener("track_status", handleTrackStatus);
+            window.electron.ipcRenderer.removeListener("error", handleDownloadError);
         };
     }, [dbService]);
 
     const handleDownload = async () => {
-        // URL 검증
         const validation = isValidYoutubePlaylistUrl(url);
 
         if (!validation.isValid) {
