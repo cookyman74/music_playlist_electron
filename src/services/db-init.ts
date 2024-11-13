@@ -15,7 +15,7 @@ export class DatabaseError extends Error {
 
 export async function initDB(): Promise<DBSchema> {
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open("musicAppDB", 2);
+        const request = indexedDB.open("musicAppDB", 3);
 
         request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
             const db = (event.target as IDBOpenDBRequest).result as DBSchema;
@@ -36,7 +36,8 @@ export async function initDB(): Promise<DBSchema> {
                 trackStore.createIndex("title", "title", { unique: false });
                 trackStore.createIndex("artist", "artist", { unique: false });
                 trackStore.createIndex("url", "url", { unique: false });
-                trackStore.createIndex("file_path", "file_path", { unique: true });
+                trackStore.createIndex("file_path", "file_path", { unique: false });
+                trackStore.createIndex("track_id", "track_id", { unique: false });  // track_id 인덱스 추가
                 trackStore.createIndex("createdAt", "createdAt", { unique: false });
             }
 

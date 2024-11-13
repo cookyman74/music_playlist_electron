@@ -356,7 +356,7 @@ export class DatabaseService {
     }
 
     async updateTrackStatus(
-        trackId: number,  // number 타입으로 변경
+        trackId: string,
         status: 'completed' | 'failed',
         filePath?: string | null,
         thumbnailPath?: string | null,
@@ -365,12 +365,14 @@ export class DatabaseService {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['tracks'], 'readwrite');
             const store = transaction.objectStore('tracks');
-            const index = store.index('track_id');
 
-            const request = index.get(trackId);
+            // track_id 인덱스가 없을 수 있으므로 전체 트랙을 가져와서 필터링
+            const request = store.getAll();
 
             request.onsuccess = () => {
-                const track = request.result;
+                const tracks = request.result;
+                const track = tracks.find(t => t.track_id === trackId);
+
                 if (track) {
                     const absoluteFilePath = filePath ? this.getAbsolutePath(filePath) : null;
                     const absoluteThumbnailPath = thumbnailPath ? this.getAbsolutePath(thumbnailPath) : null;
@@ -379,9 +381,9 @@ export class DatabaseService {
                         ...track,
                         download_status: status,
                         file_path: filePath,
-                        absolute_file_path: absoluteFilePath,  // 절대 경로 추가
+                        absolute_file_path: absoluteFilePath,
                         thumbnail_path: thumbnailPath,
-                        absolute_thumbnail_path: absoluteThumbnailPath,  // 절대 경로 추가
+                        absolute_thumbnail_path: absoluteThumbnailPath,
                         error: error || null,
                         completed_at: new Date(),
                         updated_at: new Date()

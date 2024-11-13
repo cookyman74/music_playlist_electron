@@ -1,4 +1,6 @@
 // utils/audioUtils.ts
+import { Track } from '../types';
+
 export const formatDuration = (seconds: number | undefined): string => {
     if (!seconds) return '--:--';
 
@@ -17,6 +19,7 @@ export const shuffleArray = <T>(array: T[]): T[] => {
 };
 
 export const getAudioFileType = (filePath: string): string | null => {
+    if (!filePath) return null;
     const extension = filePath.split('.').pop()?.toLowerCase();
     switch (extension) {
         case 'mp3':
@@ -32,7 +35,19 @@ export const getAudioFileType = (filePath: string): string | null => {
     }
 };
 
+export const isPlayable = (track: Track): boolean => {
+    return track.download_status === 'completed' &&
+        (!!track.file_path || !!track.absolute_file_path);
+};
+
+export const getPlayablePath = (track: Track): string | null => {
+    if (!isPlayable(track)) return null;
+    return track.absolute_file_path || track.file_path || null;
+};
+
 export const validateAudioFile = async (filePath: string): Promise<boolean> => {
+    if (!filePath) return false;
+
     try {
         const audio = new Audio();
         return new Promise((resolve) => {
@@ -50,6 +65,8 @@ export class AudioController {
     private audio: HTMLAudioElement;
     private onEndedCallback?: () => void;
     private onErrorCallback?: (error: Error) => void;
+    private onPlayCallback?: () => void;
+    private onPauseCallback?: () => void;
 
     constructor() {
         this.audio = new Audio();
@@ -65,18 +82,39 @@ export class AudioController {
 
         this.audio.addEventListener('error', (e) => {
             if (this.onErrorCallback) {
-                this.onErrorCallback(new Error(`오디오 재생 오류: ${e.type}`));
+                const errorMessage = e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.';
+                this.onErrorCallback(new Error(`오디오 재생 오류: ${errorMessage}`));
             }
+        });
+
+        this.audio.addEventListener('play', () => {
+            if (this.onPlayCallback) this.onPlayCallback();
+        });
+
+        this.audio.addEventListener('pause', () => {
+            if (this.onPauseCallback) this.onPauseCallback();
         });
     }
 
-    public setSource(src: string) {
-        this.audio.src = src;
+    public async setSource(track: Track) {
+        if (!isPlayable(track)) {
+            throw new Error('재생할 수 없는 트랙입니다.');
+        }
+
+        const path = getPlayablePath(track);
+        if (!path) {
+            throw new Error('오디오 파일 경로를 찾을 수 없습니다.');
+        }
+
+        this.audio.src = path;
         this.audio.load();
     }
 
     public async play() {
         try {
+            if (!this.audio.src) {
+                throw new Error('재생할 오디오 소스가 설정되지 않았습니다.');
+            }
             await this.audio.play();
         } catch (error) {
             if (this.onErrorCallback) {
@@ -94,7 +132,7 @@ export class AudioController {
     }
 
     public seek(time: number) {
-        if (time >= 0 && time <= this.audio.duration) {
+        if (this.audio.duration && time >= 0 && time <= this.audio.duration) {
             this.audio.currentTime = time;
         }
     }
@@ -107,6 +145,10 @@ export class AudioController {
         return this.audio.duration;
     }
 
+    public isPlaying(): boolean {
+        return !this.audio.paused;
+    }
+
     public onEnded(callback: () => void) {
         this.onEndedCallback = callback;
     }
@@ -115,10 +157,20 @@ export class AudioController {
         this.onErrorCallback = callback;
     }
 
+    public onPlay(callback: () => void) {
+        this.onPlayCallback = callback;
+    }
+
+    public onPause(callback: () => void) {
+        this.onPauseCallback = callback;
+    }
+
     public cleanup() {
         this.audio.pause();
         this.audio.src = '';
         this.onEndedCallback = undefined;
         this.onErrorCallback = undefined;
+        this.onPlayCallback = undefined;
+        this.onPauseCallback = undefined;
     }
 }

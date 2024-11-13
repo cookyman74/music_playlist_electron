@@ -19,34 +19,51 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
     const [isMuted, setIsMuted] = useState(false);
 
     useEffect(() => {
-        if (!track.absolute_file_path) return;
+        if (!track.file_path && !track.absolute_file_path) {
+            if (onError) {
+                onError(new Error('재생할 수 있는 오디오 파일이 없습니다.'));
+            }
+            return;
+        }
 
-        const audio = new Audio(track.absolute_file_path);
+        const audio = new Audio(track.absolute_file_path || track.file_path);
         audioRef.current = audio;
 
-        audio.addEventListener('loadedmetadata', () => {
+        const handleLoadedMetadata = () => {
             setDuration(audio.duration);
-        });
+        };
 
-        audio.addEventListener('timeupdate', () => {
+        const handleTimeUpdate = () => {
             setCurrentTime(audio.currentTime);
-        });
+        };
 
-        audio.addEventListener('ended', () => {
+        const handleEnded = () => {
             setIsPlaying(false);
             if (onEnded) onEnded();
-        });
+        };
 
-        audio.addEventListener('error', (e) => {
-            if (onError) onError(new Error(`오디오 재생 오류: ${e.message}`));
-        });
+        const handleError = (e: ErrorEvent) => {
+            console.error('오디오 로드 실패:', e);
+            if (onError) {
+                onError(new Error(`오디오 파일 재생 실패: ${e.message}`));
+            }
+        };
+
+        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+        audio.addEventListener('timeupdate', handleTimeUpdate);
+        audio.addEventListener('ended', handleEnded);
+        audio.addEventListener('error', handleError);
 
         return () => {
             audio.pause();
             audio.src = '';
+            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            audio.removeEventListener('timeupdate', handleTimeUpdate);
+            audio.removeEventListener('ended', handleEnded);
+            audio.removeEventListener('error', handleError);
             audioRef.current = null;
         };
-    }, [track.absolute_file_path]);
+    }, [track.file_path, track.absolute_file_path]);
 
     const togglePlay = () => {
         if (!audioRef.current) return;
