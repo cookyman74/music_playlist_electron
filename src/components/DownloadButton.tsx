@@ -61,10 +61,12 @@ const DownloadButton: React.FC = () => {
             }
         };
 
+        // 다운로드 진행상태 수신
         const handleProgress = async (event: any, progressData: any) => {
             try {
                 const { track_id, progress } = progressData;
 
+                // 트랙 진행상태 업데이트
                 setTracks(prev => prev.map(track =>
                     track.id === track_id
                         ? {
@@ -75,6 +77,7 @@ const DownloadButton: React.FC = () => {
                         : track
                 ));
 
+                // DB에 진행상태 저장
                 if (dbService) {
                     await dbService.updateTrackProgress(track_id, progress);
                 }
@@ -90,10 +93,12 @@ const DownloadButton: React.FC = () => {
             }
         };
 
+        // 트랙 상태 업데이트 수신
         const handleTrackStatus = async (event: any, trackStatus: any) => {
             try {
                 const { track_id, status, file_path, absolute_file_path, thumbnail_path, error } = trackStatus;
 
+                // 트랙 상태 업데이트
                 setTracks(prev => prev.map(track =>
                     track.id === track_id
                         ? {
@@ -107,6 +112,7 @@ const DownloadButton: React.FC = () => {
                         : track
                 ));
 
+                // DB에 상태 저장
                 if (dbService) {
                     await dbService.updateTrackStatus(
                         track_id,
@@ -145,6 +151,7 @@ const DownloadButton: React.FC = () => {
     }, [dbService]);
 
     const handleDownload = async () => {
+        // URL 검증
         const validation = isValidYoutubePlaylistUrl(url);
 
         if (!validation.isValid) {
