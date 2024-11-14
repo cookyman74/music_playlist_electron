@@ -4,16 +4,16 @@ import path from 'path-browserify';
 
 export class DatabaseService {
     private db: IDBDatabase;
-    private baseDirectory: string;
+    private baseDirectory: string = './downloads'
 
-    constructor(db: IDBDatabase, baseDirectory: string) {
+    constructor(db: IDBDatabase) {
         this.db = db;
-        this.baseDirectory = baseDirectory;
     }
 
     private getAbsolutePath(relativePath: string): string {
-        // downloads 디렉토리를 포함한 절대 경로 생성
-        return path.resolve(this.baseDirectory, 'downloads', relativePath);
+        const absolutePath = path.join(this.baseDirectory, relativePath);
+        console.log(`Resolved Path: ${absolutePath}`); // 디버그 로그
+        return absolutePath;
     }
 
     async addTrack(trackData: Omit<Track, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
@@ -135,8 +135,8 @@ export class DatabaseService {
             request.onsuccess = () => {
                 const tracks = request.result.map(track => ({
                     ...track,
-                    absolute_file_path: track.file_path ? this.getAbsolutePath(track.file_path) : undefined,
-                    absolute_thumbnail_path: track.thumbnail_path ? this.getAbsolutePath(track.thumbnail_path) : undefined
+                    file_path: track.file_path,
+                    thumbnail_path: track.thumbnail_path
                 }));
                 resolve(tracks);
             };

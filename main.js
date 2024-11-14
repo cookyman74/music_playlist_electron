@@ -7,14 +7,15 @@ const util = require('util');
 const access = util.promisify(fs.access);
 const stat = util.promisify(fs.stat);
 
-// 스키마 등록을 앱 시작 전에 수행
+// 커스텀 프로토콜 등록
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'audio',
+    scheme: 'media',
     privileges: {
       standard: true,
       supportFetchAPI: true,
-      stream: true
+      stream: true,
+      secure: true
     }
   }
 ]);
@@ -75,31 +76,55 @@ app.whenReady().then(() => {
   createWindow();
   registerAudioProtocol();
 
-  // IPC 핸들러
+  // 오디오 URL 생성 핸들러
   ipcMain.handle('get-audio-url', async (_, filePath) => {
     try {
-      await access(filePath, fs.constants.R_OK);
-      const stats = await stat(filePath);
+      // 파일 존재 여부 확인
+      await fs.promises.access(filePath, fs.constants.F_OK);
 
-      if (!stats.isFile()) {
-        throw new Error(`Not a file: ${filePath}`);
-      }
+      // 경로에서 URL 생성
+      const encodedPath = encodeURI(filePath).replace(/^\//, '');
+      const mediaUrl = `media://${encodedPath}`;
 
-      console.log('File found and accessible:', filePath);
-      console.log('File stats:', {
-        size: stats.size,
-        mode: stats.mode
+      console.log('Audio URL created:', {
+        original: filePath,
+        mediaUrl: mediaUrl
       });
 
-      const audioUrl = `audio://${encodeURI(filePath)}`;
-      console.log('Generated audio URL:', audioUrl);
-
-      return audioUrl;
+      return mediaUrl;
     } catch (error) {
-      console.error('File access error:', error);
-      throw error;
+      console.error('Error creating audio URL:', error);
+      throw new Error(`Cannot access audio file: ${error.message}`);
     }
   });
+
+  // 미디어 프로토콜 핸들러
+  protocol.handle('media', async (request) => {
+    try {
+      const filePath = decodeURI(request.url.slice('media://'.length));
+      const absolutePath = `/${filePath}`; // 앞에 슬래시 추가
+
+      const stat = await fs.promises.stat(absolutePath);
+
+      return new Response(fs.createReadStream(absolutePath), {
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': stat.size.toString()
+        }
+      });
+    } catch (error) {
+      console.error('Media protocol error:', error);
+      return new Response('File not found', { status: 404 });
+    }
+  });
+});
+
+// 애플리케이션 경로 확인을 위한 디버깅 정보
+console.log('Application paths:', {
+  appPath: app.getAppPath(),
+  cwd: process.cwd(),
+  execPath: process.execPath,
+  resourcePath: process.resourcesPath
 });
 
 

@@ -15,7 +15,7 @@ export class DatabaseError extends Error {
 
 export async function initDB(): Promise<DBSchema> {
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open("musicAppDB", 3);
+        const request = indexedDB.open("musicAppDB", 4);
 
         request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
             const db = (event.target as IDBOpenDBRequest).result as DBSchema;

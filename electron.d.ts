@@ -11,6 +11,7 @@ declare global {
             };
             getPath: (name: string) => Promise<string>;
             getAudioUrl: (filePath: string) => Promise<string>;
+            checkFileExists: (filePath: string) => Promise<boolean>;
         };
     }
 }

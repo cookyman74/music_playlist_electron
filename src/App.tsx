@@ -10,6 +10,7 @@ import PlaylistPage from './pages/PlaylistPage';
 import DownloadPage from './pages/DownloadPage';
 import SettingsPage from './pages/SettingsPage';
 
+
 export const DatabaseContext = createContext<DatabaseService | null>(null);
 export const ThemeContext = createContext({ toggleColorMode: () => {} });
 
@@ -40,8 +41,8 @@ function App() {
         const initializeDb = async () => {
             try {
                 const db = await initDB();
-                const baseDirectory = await window.electron?.getPath('userData') || './downloads';
-                const service = new DatabaseService(db, baseDirectory);
+
+                const service = new DatabaseService(db);
                 setDbService(service);
             } catch (err) {
                 if (err instanceof DatabaseError) {
@@ -54,6 +55,7 @@ function App() {
 
         initializeDb();
     }, []);
+
 
     return (
         <DatabaseContext.Provider value={dbService}>

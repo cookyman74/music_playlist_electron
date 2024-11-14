@@ -23,32 +23,41 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
 
         const initAudio = async () => {
             try {
-                // 파일 경로 체크
-                const filePath = track.absolute_file_path || track.file_path;
+                const filePath = track.file_path || track.absolute_file_path;
                 if (!filePath) {
                     throw new Error('재생할 수 있는 오디오 파일이 없습니다.');
                 }
 
-                // Electron을 통해 오디오 URL 가져오기
                 const audioUrl = await window.electron.getAudioUrl(filePath);
+                console.log('Audio URL created:', audioUrl);
+
                 if (!mounted) return;
 
-                // 기존 오디오 정리
                 if (audioRef.current) {
                     audioRef.current.pause();
                     audioRef.current.src = '';
                 }
 
-                // 새 오디오 인스턴스 생성 및 설정
-                const audio = new Audio(audioUrl);
-                audioRef.current = audio;
+                const audio = new Audio();
 
-                // 오디오 이벤트 리스너 설정
+                // 오디오 설정
+                audio.preload = 'auto';  // 'metadata' 대신 'auto' 사용
+                audio.crossOrigin = 'anonymous';
+                audio.volume = volume;
+
                 const setupAudioListeners = () => {
                     audio.addEventListener('loadedmetadata', () => {
                         if (mounted) {
                             setDuration(audio.duration);
+                            console.log('Audio metadata loaded:', {
+                                duration: audio.duration,
+                                src: audioUrl
+                            });
                         }
+                    });
+
+                    audio.addEventListener('canplaythrough', () => {
+                        console.log('Audio can play through');
                     });
 
                     audio.addEventListener('timeupdate', () => {
@@ -66,26 +75,47 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
 
                     audio.addEventListener('error', (e) => {
                         if (!mounted) return;
-                        console.error('Audio error:', e);
 
-                        const errorMessage = audio.error
-                            ? `오디오 재생 오류 (${audio.error.code}): ${filePath}`
-                            : '알 수 없는 오디오 재생 오류';
+                        console.error('Audio error:', {
+                            error: audio.error,
+                            src: audioUrl,
+                            readyState: audio.readyState,
+                            networkState: audio.networkState
+                        });
 
-                        if (onError) onError(new Error(errorMessage));
+                        if (onError) {
+                            const errorMessage = getErrorMessage(audio.error, filePath);
+                            onError(new Error(errorMessage));
+                        }
                     });
                 };
 
                 setupAudioListeners();
-                audio.volume = volume;
-
-                console.log('Audio initialized with URL:', audioUrl);
+                audio.src = audioUrl;
+                audioRef.current = audio;
 
             } catch (error) {
                 console.error('Audio initialization error:', error);
                 if (mounted && onError) {
                     onError(error instanceof Error ? error : new Error('오디오 초기화 실패'));
                 }
+            }
+        };
+
+        const getErrorMessage = (error: MediaError | null, filePath: string): string => {
+            if (!error) return '알 수 없는 오디오 오류';
+
+            switch (error.code) {
+                case MediaError.MEDIA_ERR_ABORTED:
+                    return '재생이 중단되었습니다.';
+                case MediaError.MEDIA_ERR_NETWORK:
+                    return '네트워크 오류가 발생했습니다.';
+                case MediaError.MEDIA_ERR_DECODE:
+                    return '오디오 디코딩에 실패했습니다.';
+                case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                    return '오디오 형식이 지원되지 않습니다.';
+                default:
+                    return `오디오 재생 오류 (${error.code}): ${filePath}`;
             }
         };
 
@@ -96,9 +126,11 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
             if (audioRef.current) {
                 audioRef.current.pause();
                 audioRef.current.src = '';
+                audioRef.current = null;
             }
         };
     }, [track.file_path, track.absolute_file_path]);
+
 
     const togglePlay = () => {
         if (!audioRef.current) return;

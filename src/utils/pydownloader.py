@@ -1,18 +1,26 @@
 import sys
 import os
 import json
-from yt_dlp import YoutubeDL
-import requests
-import logging
-from typing import Optional, Dict, Any
+from yt_dlp import YoutubeDL  # YouTube에서 동영상을 다운로드하기 위한 도구
+import requests  # HTTP 요청을 보내기 위한 라이브러리
+import logging  # 프로그램 실행 중 기록을 남기기 위한 도구
+from typing import Optional, Dict, Any  # 타입 힌트용 라이브러리
 
+# 'PlaylistDownloader' 클래스는 재생목록의 정보를 가져오고, 음악 파일과 이미지를 다운로드하는 역할을 합니다.
 class PlaylistDownloader:
     def __init__(self, url: str, preferred_codec: str = 'mp3',
                  preferred_quality: str = '192', download_directory: str = './downloads'):
+        """
+        클래스 초기화 함수입니다.
+        - `url`: 다운로드할 재생목록의 URL
+        - `preferred_codec`: 저장할 파일의 형식 (예: mp3)
+        - `preferred_quality`: 저장할 파일의 음질 (예: 192kbps)
+        - `download_directory`: 다운로드할 파일을 저장할 폴더 경로
+        """
         self.url = url
         self.preferred_codec = preferred_codec
         self.preferred_quality = preferred_quality
-        self.download_directory = download_directory
+        self.download_directory = os.path.abspath(download_directory)
 
         # 썸네일 디렉토리 설정
         self.thumbnail_directory = os.path.join(download_directory, 'thumbnails')
@@ -28,12 +36,18 @@ class PlaylistDownloader:
     def __print_message(self, message_type: str, data: Dict[str, Any]) -> None:
         """표준화된 형식으로 메시지 출력"""
         try:
+            # 다운로드 경로를 포함하는 항목은 항상 절대 경로로 변환
+            if 'file_path' in data:
+                data['file_path'] = os.path.abspath(data['file_path'])
+            if 'thumbnail_path' in data:
+                data['thumbnail_path'] = os.path.abspath(data['thumbnail_path'])
+
             print(f"{message_type}:{json.dumps(data)}", flush=True)
         except Exception as e:
             print(f"error:{json.dumps({'error': str(e)})}", flush=True)
 
     def download_thumbnail(self, track_id: str, thumbnail_url: str | None) -> str:
-        """썸네일 이미지를 다운로드하고 경로를 반환"""
+        """썸네일 이미지를 다운로드하고 절대 경로를 반환"""
         try:
             if not thumbnail_url:
                 self.__print_message('error', {
@@ -42,7 +56,6 @@ class PlaylistDownloader:
                 })
                 return ""
 
-            # sanitize track_id
             sanitized_track_id = ''.join(c for c in track_id if c.isalnum() or c in ('-', '_'))
             thumbnail_path = os.path.join(self.thumbnail_directory, f"{sanitized_track_id}.jpg")
 
@@ -51,7 +64,8 @@ class PlaylistDownloader:
                 with open(thumbnail_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=1024):
                         f.write(chunk)
-                return os.path.relpath(thumbnail_path, self.download_directory)
+                # 절대 경로 반환
+                return os.path.abspath(thumbnail_path)
             else:
                 self.__print_message('error', {
                     'track_id': track_id,
@@ -67,7 +81,11 @@ class PlaylistDownloader:
             return ""
 
     def progress_hook(self, progress_data: Dict[str, Any], track_id: str) -> None:
-        """다운로드 진행 상황을 추적하는 hook 함수"""
+        """
+        다운로드 진행 상황을 추적합니다.
+        - `progress_data`: 현재 진행 상황 데이터
+        - `track_id`: 트랙의 고유 ID
+        """
         try:
             if progress_data['status'] == 'downloading':
                 downloaded = progress_data.get('downloaded_bytes', 0)
@@ -109,7 +127,6 @@ class PlaylistDownloader:
             }],
             'quiet': True,
             'no_warnings': True,
-            # 'writethumbnail': True,  # 제거 (download_thumbnail 메소드 사용)
         }
 
         try:
@@ -134,12 +151,12 @@ class PlaylistDownloader:
                         actual_file_path = os.path.join(playlist_directory, possible_files[0])
 
                 if os.path.exists(actual_file_path):
-                    relative_path = os.path.relpath(actual_file_path, self.download_directory)
+                    # 절대 경로로 변환하여 출력
                     self.__print_message('track_status', {
                         'track_id': track_id,
                         'status': 'success',
-                        'file_path': relative_path,
-                        'thumbnail_path': thumbnail_path,
+                        'file_path': os.path.abspath(actual_file_path),
+                        'thumbnail_path': os.path.abspath(thumbnail_path),
                         'title': actual_info.get('title', track['title']),
                         'duration': actual_info.get('duration'),
                     })
@@ -152,7 +169,7 @@ class PlaylistDownloader:
                 'status': 'failed',
                 'error': str(e)
             })
-            return False  # except 블록 안으로 이동
+            return False
 
     def sanitize_filename(self, filename: str) -> str:
         """파일 이름에서 허용되지 않는 문자 제거 및 길이 제한"""
