@@ -1,8 +1,8 @@
-// components/AudioPlayer.tsx
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, IconButton, Slider, Typography } from '@mui/material';
 import { PlayArrow, Pause, VolumeUp, VolumeMute } from '@mui/icons-material';
 import { Track } from '../../types';
+import { AudioController, formatDuration } from '../../utils/audioUtils';
 
 interface AudioPlayerProps {
     track: Track;
@@ -11,7 +11,7 @@ interface AudioPlayerProps {
 }
 
 const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) => {
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioController = useRef<AudioController | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -19,159 +19,76 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
     const [isMuted, setIsMuted] = useState(false);
 
     useEffect(() => {
-        let mounted = true;
+        audioController.current = new AudioController();
 
-        const initAudio = async () => {
-            try {
-                const filePath = track.file_path || track.absolute_file_path;
-                if (!filePath) {
-                    throw new Error('재생할 수 있는 오디오 파일이 없습니다.');
-                }
-
-                const audioUrl = await window.electron.getAudioUrl(filePath);
-                console.log('Audio URL created:', audioUrl);
-
-                if (!mounted) return;
-
-                if (audioRef.current) {
-                    audioRef.current.pause();
-                    audioRef.current.src = '';
-                }
-
-                const audio = new Audio();
-
-                // 오디오 설정
-                audio.preload = 'auto';  // 'metadata' 대신 'auto' 사용
-                audio.crossOrigin = 'anonymous';
-                audio.volume = volume;
-
-                const setupAudioListeners = () => {
-                    audio.addEventListener('loadedmetadata', () => {
-                        if (mounted) {
-                            setDuration(audio.duration);
-                            console.log('Audio metadata loaded:', {
-                                duration: audio.duration,
-                                src: audioUrl
-                            });
-                        }
-                    });
-
-                    audio.addEventListener('canplaythrough', () => {
-                        console.log('Audio can play through');
-                    });
-
-                    audio.addEventListener('timeupdate', () => {
-                        if (mounted) {
-                            setCurrentTime(audio.currentTime);
-                        }
-                    });
-
-                    audio.addEventListener('ended', () => {
-                        if (mounted) {
-                            setIsPlaying(false);
-                            if (onEnded) onEnded();
-                        }
-                    });
-
-                    audio.addEventListener('error', (e) => {
-                        if (!mounted) return;
-
-                        console.error('Audio error:', {
-                            error: audio.error,
-                            src: audioUrl,
-                            readyState: audio.readyState,
-                            networkState: audio.networkState
-                        });
-
-                        if (onError) {
-                            const errorMessage = getErrorMessage(audio.error, filePath);
-                            onError(new Error(errorMessage));
-                        }
-                    });
-                };
-
-                setupAudioListeners();
-                audio.src = audioUrl;
-                audioRef.current = audio;
-
-            } catch (error) {
-                console.error('Audio initialization error:', error);
-                if (mounted && onError) {
-                    onError(error instanceof Error ? error : new Error('오디오 초기화 실패'));
-                }
+        audioController.current.setHandlers({
+            onEnded,
+            onError,
+            onPlay: () => setIsPlaying(true),
+            onPause: () => setIsPlaying(false),
+            onTimeUpdate: setCurrentTime,
+            onDurationChange: (newDuration) => {
+                console.log('Duration changed:', newDuration);
+                setDuration(newDuration);
             }
-        };
-
-        const getErrorMessage = (error: MediaError | null, filePath: string): string => {
-            if (!error) return '알 수 없는 오디오 오류';
-
-            switch (error.code) {
-                case MediaError.MEDIA_ERR_ABORTED:
-                    return '재생이 중단되었습니다.';
-                case MediaError.MEDIA_ERR_NETWORK:
-                    return '네트워크 오류가 발생했습니다.';
-                case MediaError.MEDIA_ERR_DECODE:
-                    return '오디오 디코딩에 실패했습니다.';
-                case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                    return '오디오 형식이 지원되지 않습니다.';
-                default:
-                    return `오디오 재생 오류 (${error.code}): ${filePath}`;
-            }
-        };
-
-        initAudio();
+        });
 
         return () => {
-            mounted = false;
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.src = '';
-                audioRef.current = null;
+            audioController.current?.cleanup();
+            audioController.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        const initializeTrack = async () => {
+            if (!audioController.current) return;
+
+            try {
+                await audioController.current.setTrack(track);
+                if (isPlaying) {
+                    await audioController.current.play();
+                }
+            } catch (error) {
+                console.error('트랙 초기화 실패:', error);
+                onError?.(error as Error);
             }
         };
-    }, [track.file_path, track.absolute_file_path]);
 
+        initializeTrack();
+    }, [track]);
 
-    const togglePlay = () => {
-        if (!audioRef.current) return;
+    const togglePlay = async () => {
+        if (!audioController.current) return;
 
-        if (isPlaying) {
-            audioRef.current.pause();
-        } else {
-            audioRef.current.play().catch(error => {
-                if (onError) onError(error);
-            });
+        try {
+            if (isPlaying) {
+                audioController.current.pause();
+            } else {
+                await audioController.current.play();
+            }
+        } catch (error) {
+            console.error('재생 토글 실패:', error);
+            onError?.(error as Error);
         }
-        setIsPlaying(!isPlaying);
     };
 
-    const handleTimeChange = (event: Event, newValue: number | number[]) => {
-        if (!audioRef.current || typeof newValue !== 'number') return;
-
-        audioRef.current.currentTime = newValue;
-        setCurrentTime(newValue);
+    const handleTimeChange = (_: Event, newValue: number | number[]) => {
+        if (!audioController.current || typeof newValue !== 'number') return;
+        audioController.current.seek(newValue);
     };
 
-    const handleVolumeChange = (event: Event, newValue: number | number[]) => {
-        if (!audioRef.current || typeof newValue !== 'number') return;
-
-        audioRef.current.volume = newValue;
+    const handleVolumeChange = (_: Event, newValue: number | number[]) => {
+        if (!audioController.current || typeof newValue !== 'number') return;
         setVolume(newValue);
         setIsMuted(newValue === 0);
+        audioController.current.setVolume(newValue);
     };
 
     const toggleMute = () => {
-        if (!audioRef.current) return;
-
+        if (!audioController.current) return;
         const newMuted = !isMuted;
-        audioRef.current.volume = newMuted ? 0 : volume;
         setIsMuted(newMuted);
-    };
-
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
+        audioController.current.setVolume(newMuted ? 0 : volume);
     };
 
     return (
@@ -181,16 +98,16 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
                     {isPlaying ? <Pause /> : <PlayArrow />}
                 </IconButton>
                 <Typography variant="body2" sx={{ mx: 1 }}>
-                    {formatTime(currentTime)}
+                    {formatDuration(currentTime)}
                 </Typography>
                 <Slider
                     value={currentTime}
-                    max={duration}
+                    max={duration || 0}
                     onChange={handleTimeChange}
                     sx={{ mx: 2 }}
                 />
                 <Typography variant="body2" sx={{ mx: 1 }}>
-                    {formatTime(duration)}
+                    {formatDuration(duration)}
                 </Typography>
                 <IconButton onClick={toggleMute}>
                     {isMuted ? <VolumeMute /> : <VolumeUp />}
