@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Box, IconButton, Slider, Typography } from '@mui/material';
 import { PlayArrow, Pause, VolumeUp, VolumeMute } from '@mui/icons-material';
 import { Track } from '../../types';
-import { AudioController, formatDuration } from '../../utils/audioUtils';
+import { formatDuration } from '../../utils/audioUtils';
+import { usePlayerStore } from '../../store/playerStore';
 
 interface AudioPlayerProps {
     track: Track;
@@ -11,90 +12,63 @@ interface AudioPlayerProps {
 }
 
 const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) => {
-    const audioController = useRef<AudioController | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
-    const [volume, setVolume] = useState(1);
-    const [isMuted, setIsMuted] = useState(false);
+    const {
+        currentTrack,
+        isPlaying,
+        currentTime,
+        duration,
+        volume,
+        isMuted,
+        initAudio,
+        playTrack,
+        togglePlay,
+        setVolume,
+        toggleMute,
+        seek
+    } = usePlayerStore();
 
     useEffect(() => {
-        audioController.current = new AudioController();
-
-        audioController.current.setHandlers({
-            onEnded,
-            onError,
-            onPlay: () => setIsPlaying(true),
-            onPause: () => setIsPlaying(false),
-            onTimeUpdate: setCurrentTime,
-            onDurationChange: (newDuration) => {
-                console.log('Duration changed:', newDuration);
-                setDuration(newDuration);
-            }
-        });
-
-        return () => {
-            audioController.current?.cleanup();
-            audioController.current = null;
-        };
+        if (!currentTrack) {
+            playTrack(track).catch(onError);
+        }
     }, []);
 
-    useEffect(() => {
-        const initializeTrack = async () => {
-            if (!audioController.current) return;
-
-            try {
-                await audioController.current.setTrack(track);
-                if (isPlaying) {
-                    await audioController.current.play();
-                }
-            } catch (error) {
-                console.error('트랙 초기화 실패:', error);
-                onError?.(error as Error);
-            }
-        };
-
-        initializeTrack();
-    }, [track]);
-
-    const togglePlay = async () => {
-        if (!audioController.current) return;
-
-        try {
-            if (isPlaying) {
-                audioController.current.pause();
-            } else {
-                await audioController.current.play();
-            }
-        } catch (error) {
-            console.error('재생 토글 실패:', error);
-            onError?.(error as Error);
+    const handlePlayClick = async () => {
+        if (currentTrack?.id === track.id) {
+            togglePlay();
+        } else {
+            await playTrack(track).catch(onError);
         }
     };
 
+    useEffect(() => {
+        const playNewTrack = async () => {
+            if (currentTrack?.id !== track.id) {
+                try {
+                    await playTrack(track);
+                } catch (error) {
+                    onError?.(error as Error);
+                }
+            }
+        };
+
+        playNewTrack();
+    }, [track.id]);
+
     const handleTimeChange = (_: Event, newValue: number | number[]) => {
-        if (!audioController.current || typeof newValue !== 'number') return;
-        audioController.current.seek(newValue);
+        if (typeof newValue !== 'number') return;
+        seek(newValue);
     };
 
     const handleVolumeChange = (_: Event, newValue: number | number[]) => {
-        if (!audioController.current || typeof newValue !== 'number') return;
+        if (typeof newValue !== 'number') return;
         setVolume(newValue);
-        setIsMuted(newValue === 0);
-        audioController.current.setVolume(newValue);
-    };
-
-    const toggleMute = () => {
-        if (!audioController.current) return;
-        const newMuted = !isMuted;
-        setIsMuted(newMuted);
-        audioController.current.setVolume(newMuted ? 0 : volume);
     };
 
     return (
         <Box sx={{ width: '100%', p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <IconButton onClick={togglePlay}>
+                <IconButton onClick={handlePlayClick}>
                     {isPlaying ? <Pause /> : <PlayArrow />}
                 </IconButton>
                 <Typography variant="body2" sx={{ mx: 1 }}>
