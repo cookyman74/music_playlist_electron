@@ -35,7 +35,6 @@ import {
 } from '@mui/icons-material';
 import { DatabaseContext } from '../App';
 import { Track, Playlist } from '../types';
-import DefaultCover from "../components/DefaultCover";
 import AudioPlayer from '../components/Player/AudioPlayer';
 import {formatDuration} from "../utils/audioUtils";
 import {usePlayerStore} from "../store/playerStore";
