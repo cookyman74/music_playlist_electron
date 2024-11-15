@@ -1,5 +1,5 @@
 // pages/PlaylistPage.tsx (Part 1)
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, memo } from 'react';
 import {
     Box,
     Grid,
@@ -38,6 +38,9 @@ import { Track, Playlist } from '../types';
 import DefaultCover from "../components/DefaultCover";
 import AudioPlayer from '../components/Player/AudioPlayer';
 import {formatDuration} from "../utils/audioUtils";
+import {usePlayerStore} from "../store/playerStore";
+import CoverImage from '../components/Player/CoverImage/CoverImage';
+
 
 const ROOT_BOX_HEIGHT = 'calc(100vh - 64px)';
 const drawerWidth = 240;
@@ -51,15 +54,19 @@ interface ViewState {
     title: string;
 }
 
+interface CoverImageProps {
+    track?: Track;
+    size?: number;
+}
+
 const PlaylistPage: React.FC = () => {
     const dbService = useContext(DatabaseContext);
     const [playlists, setPlaylists] = useState<Playlist[]>([]);
     const [viewState, setViewState] = useState<ViewState>({ type: 'all', title: '모든 음악' });
     const [tracks, setTracks] = useState<Track[]>([]);
 
-    // 재생 관련 상태
-    const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
+    // const [isPlaying, setIsPlaying] = useState(false);
+    const { isPlaying, currentTrack, togglePlay, playTrack } = usePlayerStore();
     const [shuffledTracks, setShuffledTracks] = useState<Track[]>([]);
     const [audioError, setAudioError] = useState<string | null>(null);
 
@@ -116,13 +123,27 @@ const PlaylistPage: React.FC = () => {
         setViewState(newView);
     };
 
-    // 재생 관련 핸들러
-    const handlePlayTrack = (track: Track) => {
-        if (currentTrack?.id === track.id) {
-            setIsPlaying(!isPlaying);
+    const handlePlayClick = async () => {
+        if (tracks.length === 0) return;
+
+        if (currentTrack) {
+            await handlePlayTrack(currentTrack);
         } else {
-            setCurrentTrack(track);
-            setIsPlaying(true);
+            await handlePlayTrack(tracks[0]);
+        }
+    };
+
+    // 재생 관련 핸들러
+    const handlePlayTrack = async (track: Track) => {
+        if (currentTrack?.id === track.id) {
+            togglePlay();
+        } else {
+            try {
+                await playTrack(track);
+            } catch (error) {
+                console.error('트랙 재생 실패:', error);
+                setAudioError(error instanceof Error ? error.message : '재생 오류');
+            }
         }
     };
 
@@ -137,37 +158,37 @@ const PlaylistPage: React.FC = () => {
     };
 
     // 커버 이미지 렌더링 컴포넌트
-    const CoverImage = ({ track, size = 200 }: { track?: Track; size?: number }) => {
-        const [imageError, setImageError] = useState(false);
-
-        if (!track?.absolute_thumbnail_path || imageError) {
-            return <DefaultCover width={size} height={size} />;
-        }
-
-        return (
-            <Box
-                component="div"
-                sx={{
-                    width: size,
-                    height: size,
-                    overflow: 'hidden',
-                    borderRadius: 1,
-                    backgroundColor: '#e0e0e0',
-                }}
-            >
-                <img
-                    src={track.absolute_thumbnail_path}
-                    alt="Cover"
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
-                    }}
-                    onError={() => setImageError(true)}
-                />
-            </Box>
-        );
-    };
+    // const CoverImage = memo(({ track, size = 200 }: { track?: Track; size?: number }) => {
+    //     const [imageError, setImageError] = useState(false);
+    //
+    //     if (!track?.absolute_thumbnail_path || imageError) {
+    //         return <DefaultCover width={size} height={size} />;
+    //     }
+    //
+    //     return (
+    //         <Box
+    //             component="div"
+    //             sx={{
+    //                 width: size,
+    //                 height: size,
+    //                 overflow: 'hidden',
+    //                 borderRadius: 1,
+    //                 backgroundColor: '#e0e0e0',
+    //             }}
+    //         >
+    //             <img
+    //                 src={track.absolute_thumbnail_path}
+    //                 alt="Cover"
+    //                 style={{
+    //                     width: '100%',
+    //                     height: '100%',
+    //                     objectFit: 'cover'
+    //                 }}
+    //                 onError={() => setImageError(true)}
+    //             />
+    //         </Box>
+    //     );
+    // });
 
     const handlePlayPlaylist = () => {
         if (tracks.length > 0) {
@@ -194,7 +215,7 @@ const PlaylistPage: React.FC = () => {
 
     const handleAudioError = (error: Error) => {
         setAudioError(error.message);
-        setIsPlaying(false);
+        usePlayerStore.setState({isPlaying: false});
     };
 
     return (
@@ -270,11 +291,16 @@ const PlaylistPage: React.FC = () => {
                             <Typography variant="subtitle1" color="text.secondary">
                                 {tracks.length} 트랙
                             </Typography>
+                            {currentTrack && (
+                                <Typography variant="subtitle1" sx={{ mt: 1, color: 'primary.main' }}>
+                                    재생 중: {currentTrack.title}
+                                </Typography>
+                            )}
                             <Box sx={{ mt: 2 }}>
                                 <Button
                                     variant="contained"
                                     startIcon={isPlaying ? <Pause /> : <PlayArrow />}
-                                    onClick={handlePlayPlaylist}
+                                    onClick={handlePlayClick}
                                     sx={{ mr: 1 }}
                                 >
                                     {isPlaying ? '일시정지' : '재생'}
