@@ -8,6 +8,8 @@ interface PlayerState {
     isPlaying: boolean;
     volume: number;
     isMuted: boolean;
+    isSeeking: boolean; // Progress Bar 조작 여부 추가
+    isLoadingTrack: boolean;
     repeat: 'none' | 'one' | 'all';
     shuffle: boolean;
     currentTime: number;
@@ -38,6 +40,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     isPlaying: false,
     volume: 1,
     isMuted: false,
+    isSeeking: false,
+    isLoadingTrack: false,
     repeat: 'none',
     shuffle: false,
     currentTime: 0,
@@ -45,40 +49,61 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     audioElement: null,
 
     initAudio: () => {
-        const audio = new Audio();
-        audio.volume = get().volume;
-
-        // 이벤트 리스너 설정
-        audio.addEventListener('timeupdate', () => {
-            set({ currentTime: audio.currentTime });
-        });
-
-        audio.addEventListener('loadedmetadata', () => {
-            set({ duration: audio.duration });
-        });
-
-        audio.addEventListener('ended', () => {
+        return new Promise<void>((resolve) => {
             const state = get();
-            if (state.repeat === 'one') {
-                audio.currentTime = 0;
-                audio.play();
-            } else {
-                state.nextTrack();
+            if (state.audioElement) {
+                resolve();
+                return;
             }
-        });
 
-        set({ audioElement: audio });
+            const audio = new Audio();
+            audio.volume = state.volume;
+
+            // 이벤트 리스너 추가
+            audio.addEventListener('timeupdate', () => {
+                if (!get().isSeeking) {
+                    set({ currentTime: audio.currentTime });
+                }
+            });
+
+            audio.addEventListener('loadedmetadata', () => {
+                set({ duration: audio.duration });
+            });
+
+            audio.addEventListener('ended', async () => {
+                const state = get();
+                if (state.repeat === 'one') {
+                    audio.currentTime = 0;
+                    await audio.play();
+                } else {
+                    await state.nextTrack();
+                }
+            });
+
+            // audioElement 상태 설정
+            set({ audioElement: audio });
+            resolve(); // audio 초기화 완료
+        });
     },
 
     playTrack: async (track: Track) => {
         const state = get();
-        if (state.currentTrack?.id === track.id) {
-            state.togglePlay();
+
+        // audioElement 초기화 확인
+        if (!state.audioElement) {
+            await state.initAudio(); // initAudio에서 Promise 반환
+        }
+
+        const audio = state.audioElement!;
+        if (!audio) {
+            console.error('audioElement가 초기화되지 않았습니다.');
             return;
         }
 
-        if (!state.audioElement) {
-            state.initAudio();
+        // 같은 트랙 재생 시 토글만 수행
+        if (state.currentTrack?.id === track.id) {
+            if (!state.isPlaying) state.togglePlay();
+            return;
         }
 
         try {
@@ -88,15 +113,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             }
 
             const audioUrl = await window.electron.getAudioUrl(filePath);
-            const audio = state.audioElement!;
 
+            // 새로운 오디오 소스 설정
             audio.src = audioUrl;
-            await audio.play();
+            audio.load();
 
+            // 오디오 로드 완료 대기
+            await new Promise<void>((resolve, reject) => {
+                audio.addEventListener('canplaythrough', () => resolve(), { once: true });
+                audio.addEventListener('error', () => reject(audio.error), { once: true });
+            });
+
+            // 오디오 재생
+            try {
+                await audio.play();
+            } catch (error) {
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                    console.warn('play()가 중단되었습니다:', error.message);
+                } else {
+                    throw error; // 예상치 못한 오류 처리
+                }
+            }
+
+            // 상태 업데이트
             set({
                 currentTrack: track,
                 isPlaying: true,
-                currentTime: 0
+                currentTime: 0,
             });
         } catch (error) {
             console.error('트랙 재생 실패:', error);
@@ -143,9 +186,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         const state = get();
         if (state.audioElement && state.currentTrack) {
             state.audioElement.currentTime = time;
-            set({ currentTime: time });
         }
+        // Progress Bar 조작 완료 후 동기화
+        set({ currentTime: time, isSeeking: false });
     },
+
 
     updateTime: (time: number) => {
         set({ currentTime: time });
@@ -169,12 +214,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
         if (currentIndex === -1 || currentIndex === state.queue.length - 1) {
             if (state.repeat === 'all') {
-                await state.playTrack(state.queue[0]);
+                const firstTrack = state.queue[0];
+                if (firstTrack) await state.playTrack(firstTrack);
             }
             return;
         }
 
-        await state.playTrack(state.queue[currentIndex + 1]);
+        const nextTrack = state.queue[currentIndex + 1];
+        if (nextTrack) {
+            await state.playTrack(nextTrack);
+        }
     },
 
     previousTrack: async () => {

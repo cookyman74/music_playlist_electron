@@ -76,9 +76,21 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
                 </Typography>
                 <Slider
                     value={currentTime}
-                    max={duration || 0}
-                    onChange={handleTimeChange}
-                    sx={{ mx: 2 }}
+                    min={0}
+                    max={duration || 1}
+                    onChange={(event, value) => {
+                        usePlayerStore.setState({ isSeeking: true, currentTime: value as number });
+                    }}
+                    onChangeCommitted={(event, value) => {
+                        usePlayerStore.getState().seek(value as number);
+                    }}
+                    sx={{
+                        color: 'primary.main',
+                        '& .MuiSlider-thumb': {
+                            width: 12,
+                            height: 12,
+                        },
+                    }}
                 />
                 <Typography variant="body2" sx={{ mx: 1 }}>
                     {formatDuration(duration)}
