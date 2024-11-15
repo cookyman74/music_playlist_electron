@@ -18,7 +18,7 @@ interface PlayerState {
 
     // Actions
     initAudio: () => void;
-    playTrack: (track: Track) => Promise<void>;
+    playTrack: (track: Track, forcePlay?: boolean) => Promise<void>;
     togglePlay: () => void;
     nextTrack: () => Promise<void>;
     previousTrack: () => Promise<void>;
@@ -32,6 +32,7 @@ interface PlayerState {
     seek: (time: number) => void;
     updateTime: (time: number) => void;
     updateDuration: (duration: number) => void;
+    selectAlbum: (albumTracks: Track[]) => Promise<void>;
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -42,7 +43,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     isMuted: false,
     isSeeking: false,
     isLoadingTrack: false,
-    repeat: 'none',
+    repeat: 'all',
     shuffle: false,
     currentTime: 0,
     duration: 0,
@@ -52,6 +53,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         return new Promise<void>((resolve) => {
             const state = get();
             if (state.audioElement) {
+                console.log('audioElement가 이미 초기화되어 있습니다.');
                 resolve();
                 return;
             }
@@ -70,15 +72,30 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
                 set({ duration: audio.duration });
             });
 
+            // 종료 이벤트 리스너
             audio.addEventListener('ended', async () => {
+                console.log('곡 종료 이벤트 발생');
                 const state = get();
+
                 if (state.repeat === 'one') {
+                    console.log('반복 재생 설정: 동일한 트랙 재생');
                     audio.currentTime = 0;
                     await audio.play();
                 } else {
+                    console.log('다음 트랙으로 이동');
+
+                    // 대기열 동기화
+                    if (!state.queue.some((track) => track.id === state.currentTrack?.id)) {
+                        console.warn('현재 트랙이 대기열에 없습니다. 동기화 중...');
+                        if (state.currentTrack) {
+                            set({ queue: [...state.queue, state.currentTrack] });
+                        }
+                    }
+
                     await state.nextTrack();
                 }
             });
+
 
             // audioElement 상태 설정
             set({ audioElement: audio });
@@ -86,22 +103,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         });
     },
 
-    playTrack: async (track: Track) => {
+    playTrack: async (track: Track, forcePlay = false) => {
         const state = get();
 
         // audioElement 초기화 확인
         if (!state.audioElement) {
-            await state.initAudio(); // initAudio에서 Promise 반환
+            console.warn('audioElement가 초기화되지 않았습니다. 초기화 시작...');
+            await state.initAudio();
         }
 
-        const audio = state.audioElement!;
+        const audio = get().audioElement; // 최신 상태 확인
         if (!audio) {
             console.error('audioElement가 초기화되지 않았습니다.');
             return;
         }
 
-        // 같은 트랙 재생 시 토글만 수행
-        if (state.currentTrack?.id === track.id) {
+        // 같은 트랙 재생 시 강제로 재생 설정 (forcePlay)
+        if (!forcePlay && state.currentTrack?.id === track.id) {
             if (!state.isPlaying) state.togglePlay();
             return;
         }
@@ -125,15 +143,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             });
 
             // 오디오 재생
-            try {
-                await audio.play();
-            } catch (error) {
-                if (error instanceof DOMException && error.name === 'AbortError') {
-                    console.warn('play()가 중단되었습니다:', error.message);
-                } else {
-                    throw error; // 예상치 못한 오류 처리
-                }
-            }
+            await audio.play();
 
             // 상태 업데이트
             set({
@@ -208,21 +218,65 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     })),
     clearQueue: () => set({ queue: [], currentTrack: null }),
 
-    nextTrack: async () => {
-        const state = get();
-        const currentIndex = state.queue.findIndex(track => track.id === state.currentTrack?.id);
-
-        if (currentIndex === -1 || currentIndex === state.queue.length - 1) {
-            if (state.repeat === 'all') {
-                const firstTrack = state.queue[0];
-                if (firstTrack) await state.playTrack(firstTrack);
-            }
+    selectAlbum: async (albumTracks: Track[]) => {
+        if (!albumTracks || albumTracks.length === 0) {
+            console.warn('선택된 앨범에 트랙이 없습니다.');
             return;
         }
 
-        const nextTrack = state.queue[currentIndex + 1];
+        console.log('앨범 선택: 대기열에 트랙 추가 중...');
+        set({ queue: albumTracks });
+
+        try {
+            console.log('첫 번째 트랙 재생 시작:', albumTracks[0].title);
+            await get().playTrack(albumTracks[0]);
+        } catch (error) {
+            console.error('앨범 트랙 재생 실패:', error);
+        }
+    },
+
+    nextTrack: async () => {
+        const state = get();
+
+        // 현재 트랙이 대기열에 있는지 확인
+        const currentIndex = state.queue.findIndex(
+            (track) => track.id === state.currentTrack?.id
+        );
+
+        // 현재 트랙이 대기열에 없으면 동기화
+        if (currentIndex === -1) {
+            console.warn('현재 트랙이 대기열에 없습니다. 동기화 중...');
+            const trackInQueue = state.queue.find(
+                (track) => track.id === state.currentTrack?.id
+            );
+            if (trackInQueue) {
+                set({ currentTrack: trackInQueue });
+            } else {
+                console.error('대기열에서 현재 트랙을 찾을 수 없습니다.');
+                return;
+            }
+        }
+
+        let nextIndex = currentIndex + 1;
+
+        // 대기열 끝 처리
+        if (nextIndex >= state.queue.length) {
+            if (state.repeat === 'all') {
+                console.log('반복 설정이 "all"입니다. 대기열의 처음으로 이동합니다.');
+                nextIndex = 0;
+            } else {
+                console.log('대기열 끝입니다. 반복 설정이 없습니다.');
+                set({ isPlaying: false });
+                return;
+            }
+        }
+
+        const nextTrack = state.queue[nextIndex];
         if (nextTrack) {
+            console.log(`다음 트랙으로 이동: ${nextTrack.title}`);
             await state.playTrack(nextTrack);
+        } else {
+            console.warn('다음 트랙을 찾을 수 없습니다.');
         }
     },
 
