@@ -65,8 +65,17 @@ const PlaylistPage: React.FC = () => {
     const [tracks, setTracks] = useState<Track[]>([]);
 
     // const [isPlaying, setIsPlaying] = useState(false);
-    const { isPlaying, currentTrack, togglePlay, playTrack } = usePlayerStore();
-    const [shuffledTracks, setShuffledTracks] = useState<Track[]>([]);
+    const {
+        isPlaying,
+        currentTrack,
+        togglePlay,
+        playTrack,
+        queue,
+        shuffle,
+        toggleShuffle,
+        addToQueue
+    } = usePlayerStore();
+    // const [shuffledTracks, setShuffledTracks] = useState<Track[]>([]);
     const [audioError, setAudioError] = useState<string | null>(null);
 
     // 트랙 로드 함수
@@ -91,6 +100,10 @@ const PlaylistPage: React.FC = () => {
             }
 
             setTracks(loadedTracks);
+            // 현재 queue가 비어있을 때만 queue 업데이트
+            if (queue.length === 0) {
+                addToQueue(loadedTracks);
+            }
         } catch (error) {
             console.error('트랙 로드 실패:', error);
         }
@@ -126,8 +139,10 @@ const PlaylistPage: React.FC = () => {
         if (tracks.length === 0) return;
 
         if (currentTrack) {
-            await handlePlayTrack(currentTrack);
+            togglePlay();
         } else {
+            // 현재 tracks를 queue에 추가하고 첫 번째 트랙 재생
+            addToQueue(tracks);
             await handlePlayTrack(tracks[0]);
         }
     };
@@ -197,24 +212,30 @@ const PlaylistPage: React.FC = () => {
 
     const handleShufflePlaylist = () => {
         if (tracks.length > 0) {
-            const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-            setShuffledTracks(shuffled);
-            handlePlayTrack(shuffled[0]);
+            // shuffle 모드 활성화
+            if (!shuffle) {
+                toggleShuffle();
+            }
+            // 현재 tracks를 queue에 추가하고 첫 번째 트랙 재생
+            addToQueue(tracks);
+            handlePlayTrack(tracks[0]);
         }
     };
 
-    const handleTrackEnded = () => {
-        const currentList = shuffledTracks.length > 0 ? shuffledTracks : tracks;
-        const currentIndex = currentList.findIndex(track => track.id === currentTrack?.id);
-
-        if (currentIndex < currentList.length - 1) {
-            handlePlayTrack(currentList[currentIndex + 1]);
-        }
-    };
+    // => playerStore에서 처리하기 때문에 불필요.
+    // const handleTrackEnded = () => {
+    //     const currentList = shuffledTracks.length > 0 ? shuffledTracks : tracks;
+    //     const currentIndex = currentList.findIndex(track => track.id === currentTrack?.id);
+    //
+    //     if (currentIndex < currentList.length - 1) {
+    //         handlePlayTrack(currentList[currentIndex + 1]);
+    //     }
+    // };
 
     const handleAudioError = (error: Error) => {
         setAudioError(error.message);
-        usePlayerStore.setState({isPlaying: false});
+        // usePlayerStore.setState({isPlaying: false});
+        togglePlay(); // 재생을 중지하기 위해 togglePlay 사용
     };
 
     return (
@@ -308,6 +329,7 @@ const PlaylistPage: React.FC = () => {
                                     variant="outlined"
                                     startIcon={<Shuffle />}
                                     onClick={handleShufflePlaylist}
+                                    color={shuffle ? "primary" : "inherit"} // shuffle 상태에 따라 색상 변경
                                 >
                                     셔플
                                 </Button>
@@ -319,7 +341,7 @@ const PlaylistPage: React.FC = () => {
                 {currentTrack && (
                     <AudioPlayer
                         track={currentTrack}
-                        onEnded={handleTrackEnded}
+                        // onEnded={handleTrackEnded}
                         onError={handleAudioError}
                     />
                 )}
