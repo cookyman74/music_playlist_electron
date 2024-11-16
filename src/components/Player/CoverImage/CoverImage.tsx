@@ -20,7 +20,6 @@ const CoverImage = memo(({ track, size = 200 }: CoverImageProps) => {
             if (track?.thumbnail_path) {
                 try {
                     const url = `local-thumbnail://${track.thumbnail_path}`;
-                    console.log("정상입니다.", url);
                     setImageUrl(url);
                     setImageError(false)
                 } catch (error) {

@@ -7,11 +7,11 @@ import { usePlayerStore } from '../../store/playerStore';
 
 interface AudioPlayerProps {
     track: Track;
-    onEnded?: () => void;
+    // onEnded?: () => void;
     onError?: (error: Error) => void;
 }
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) => {
+const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onError }) => {
     const {
         currentTrack,
         isPlaying,
@@ -19,7 +19,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
         duration,
         volume,
         isMuted,
-        initAudio,
         playTrack,
         togglePlay,
         setVolume,
@@ -27,37 +26,48 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
         seek
     } = usePlayerStore();
 
+    // 초기 트랙 재생 로직
     useEffect(() => {
         if (!currentTrack) {
             playTrack(track).catch(onError);
         }
     }, []);
 
-    const handlePlayClick = async () => {
-        if (currentTrack?.id === track.id) {
-            togglePlay();
-        } else {
-            await playTrack(track).catch(onError);
-        }
+    const handlePlayClick = () => {
+        togglePlay();
     };
 
-    useEffect(() => {
-        const playNewTrack = async () => {
-            if (currentTrack?.id !== track.id) {
-                try {
-                    await playTrack(track);
-                } catch (error) {
-                    onError?.(error as Error);
-                }
-            }
-        };
+    // useEffect(() => {
+    //     const playNewTrack = async () => {
+    //         if (currentTrack?.id !== track.id) {
+    //             try {
+    //                 await playTrack(track);
+    //             } catch (error) {
+    //                 onError?.(error as Error);
+    //             }
+    //         }
+    //     };
+    //
+    //     playNewTrack();
+    // }, [track.id]);
 
-        playNewTrack();
-    }, [track.id]);
-
-    const handleTimeChange = (_: Event, newValue: number | number[]) => {
+    // 시간 변경 핸들러 수정
+    const handleTimeChange = (_: Event | React.SyntheticEvent, newValue: number | number[]) => {
         if (typeof newValue !== 'number') return;
-        seek(newValue);
+        // 드래그 중에만 임시로 currentTime 업데이트
+        usePlayerStore.setState({
+            isSeeking: true,
+            currentTime: newValue
+        });
+    };
+
+    const handleTimeChangeCommitted = async (_: Event | React.SyntheticEvent, newValue: number | number[]) => {
+        if (typeof newValue !== 'number') return;
+        try {
+            await seek(newValue);
+        } catch (error) {
+            console.error('Seek failed:', error);
+        }
     };
 
     const handleVolumeChange = (_: Event, newValue: number | number[]) => {
@@ -78,12 +88,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onEnded, onError }) =>
                     value={currentTime}
                     min={0}
                     max={duration || 1}
-                    onChange={(event, value) => {
-                        usePlayerStore.setState({ isSeeking: true, currentTime: value as number });
-                    }}
-                    onChangeCommitted={(event, value) => {
-                        usePlayerStore.getState().seek(value as number);
-                    }}
+                    onChange={handleTimeChange}
+                    onChangeCommitted={handleTimeChangeCommitted}
+                    disabled={!currentTrack}  // seeking 중일 때는 비활성화
                     sx={{
                         color: 'primary.main',
                         '& .MuiSlider-thumb': {

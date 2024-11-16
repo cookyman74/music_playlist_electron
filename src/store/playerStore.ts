@@ -68,6 +68,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
                 }
             });
 
+            // seeking 시작 시
+            audio.addEventListener('seeking', () => {
+                set({ isSeeking: true });
+            });
+
+            // seeking 완료 시
+            audio.addEventListener('seeked', () => {
+                set({
+                    isSeeking: false,
+                    currentTime: audio.currentTime
+                });
+            });
+
+            // 에러 발생 시
+            audio.addEventListener('error', () => {
+                set({ isSeeking: false });
+                console.error('Audio error:', audio.error);
+            });
+
             audio.addEventListener('loadedmetadata', () => {
                 set({ duration: audio.duration });
             });
@@ -95,7 +114,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
                     await state.nextTrack();
                 }
             });
-
 
             // audioElement 상태 설정
             set({ audioElement: audio });
@@ -196,11 +214,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         const state = get();
         if (state.audioElement && state.currentTrack) {
             state.audioElement.currentTime = time;
+            set({
+                currentTime: time,
+                isSeeking: false
+            });
         }
-        // Progress Bar 조작 완료 후 동기화
-        set({ currentTime: time, isSeeking: false });
     },
-
 
     updateTime: (time: number) => {
         set({ currentTime: time });
