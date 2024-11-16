@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Box, IconButton, Slider, Typography } from '@mui/material';
-import { PlayArrow, Pause, VolumeUp, VolumeMute } from '@mui/icons-material';
+import {PlayArrow, Pause, VolumeUp, VolumeMute, SkipPrevious, SkipNext} from '@mui/icons-material';
 import { Track } from '../../types';
 import { formatDuration } from '../../utils/audioUtils';
 import { usePlayerStore } from '../../store/playerStore';
@@ -23,7 +23,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onError }) => {
         togglePlay,
         setVolume,
         toggleMute,
-        seek
+        seek,
+        previousTrack,
+        nextTrack
     } = usePlayerStore();
 
     // 초기 트랙 재생 로직
@@ -78,9 +80,17 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ track, onError }) => {
     return (
         <Box sx={{ width: '100%', p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <IconButton onClick={handlePlayClick}>
-                    {isPlaying ? <Pause /> : <PlayArrow />}
-                </IconButton>
+                <Box sx={{ display: 'flex', alignItems: 'center', mr:2 }}>
+                    <IconButton onClick={previousTrack}>
+                        <SkipPrevious />
+                    </IconButton>
+                    <IconButton onClick={handlePlayClick}>
+                        {isPlaying ? <Pause /> : <PlayArrow />}
+                    </IconButton>
+                    <IconButton onClick={nextTrack}>
+                        <SkipNext />
+                    </IconButton>
+                </Box>
                 <Typography variant="body2" sx={{ mx: 1 }}>
                     {formatDuration(currentTime)}
                 </Typography>
