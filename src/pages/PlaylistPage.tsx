@@ -53,10 +53,10 @@ interface ViewState {
     title: string;
 }
 
-interface CoverImageProps {
-    track?: Track;
-    size?: number;
-}
+// interface CoverImageProps {
+//     track?: Track;
+//     size?: number;
+// }
 
 const PlaylistPage: React.FC = () => {
     const dbService = useContext(DatabaseContext);

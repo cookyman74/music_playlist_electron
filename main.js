@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain , protocol} = require('electron');
+const { app, BrowserWindow, ipcMain , protocol, net} = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -75,6 +75,27 @@ function registerAudioProtocol() {
 app.whenReady().then(() => {
   createWindow();
   registerAudioProtocol();
+
+  protocol.handle('local-thumbnail', async (request) => {
+    try {
+      const filePath = decodeURI(request.url.replace('local-thumbnail://', ''));
+      console.log('Attempting to load image:', { filePath })
+      // 파일 존재 확인 및 읽기
+      if (!fs.existsSync(filePath)) {
+        throw new Error('File not found');
+      }
+      const fileData = await fs.promises.readFile(filePath);
+      return new Response(fileData, {
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    } catch (error) {
+      console.error('Image loading error:', error);
+      return new Response('Not Found', { status: 404 });
+    }
+  });
 
   // 오디오 URL 생성 핸들러
   ipcMain.handle('get-audio-url', async (_, filePath) => {
@@ -154,6 +175,14 @@ ipcMain.handle('get-audio-file', (event, filePath) => {
 // IPC 핸들러 설정
 ipcMain.handle('get-path', (event, name) => {
   return app.getPath(name);
+});
+
+ipcMain.handle('get-image-url', async (_, path) => {
+  // 보안을 위해 파일 경로 검증
+  if (!path.includes('thumbnails')) {
+    throw new Error('Invalid path');
+  }
+  return `file://${path}`;
 });
 
 // 디렉토리 생성 핸들러 추가

@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, {memo, useEffect, useState} from 'react';
 import { Box } from '@mui/material';
 import { Track } from '../../../types';
 import DefaultCoverComponent from './DefaultCoverComponent';
@@ -10,8 +10,29 @@ interface CoverImageProps {
 
 const CoverImage = memo(({ track, size = 200 }: CoverImageProps) => {
     const [imageError, setImageError] = useState(false);
+    const [imageUrl, setImageUrl] = useState<string>('');
 
-    if (!track?.absolute_thumbnail_path || imageError) {
+    // electron의 file:// 프로토콜을 사용하여 로컬 파일 접근
+    // const thumbnailPath = `file://${track.thumbnail_path.replace(/\\/g, '/')}`;
+
+    useEffect(() => {
+        const loadImage = async () => {
+            if (track?.thumbnail_path) {
+                try {
+                    const url = `local-thumbnail://${track.thumbnail_path}`;
+                    console.log("정상입니다.", url);
+                    setImageUrl(url);
+                    setImageError(false)
+                } catch (error) {
+                    console.error("썸네일 오류",error);
+                    setImageError(true);
+                }
+            }
+        };
+        loadImage();
+    }, [track?.thumbnail_path]);
+
+    if (!track?.thumbnail_path || imageError) {
         return <DefaultCoverComponent width={size} height={size} />;
     }
 
@@ -27,7 +48,7 @@ const CoverImage = memo(({ track, size = 200 }: CoverImageProps) => {
     }}
 >
     <img
-        src={track.absolute_thumbnail_path}
+        src={imageUrl}
     alt="Cover"
     style={{
         width: '100%',

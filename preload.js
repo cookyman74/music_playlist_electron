@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('electron', {
         once: (channel, func) => ipcRenderer.once(channel, (event, ...args) => func(event, ...args)),
         removeListener: (channel, func) => ipcRenderer.removeListener(channel, func),
         invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),  // 추가
+        invoke: (channel, ...args) => {
+            const validChannels = ['get-audio-url', 'get-image-url']; // get-image-url 추가
+            if (validChannels.includes(channel)) {
+                return ipcRenderer.invoke(channel, ...args);
+            }
+        },
     },
     getPath: (name) => ipcRenderer.invoke('get-path', name),
     getAudioUrl: (filePath) => ipcRenderer.invoke('get-audio-url', filePath),
