@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, protocol, net } = require('electron');
 const path = require('path');
+const isDev = process.env.NODE_ENV === 'development';
+
 const { spawn } = require('child_process');
 const fs = require('fs');
 const util = require('util');
@@ -35,6 +37,15 @@ function createWindow() {
       nodeIntegration: false
     },
   });
+
+  // 개발/프로덕션 환경에 따른 URL 로드
+  if (isDev) {
+    mainWindow.loadURL(process.env.ELECTRON_START_URL);
+    mainWindow.webContents.openDevTools();
+  } else {
+    // production 환경에서는 빌드된 파일 로드
+    mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
+  }
 
   // 개발/프로덕션 환경에 따른 URL 로드
   mainWindow.loadURL(
@@ -189,12 +200,43 @@ ipcMain.handle('ensure-directory', async (_, directoryPath) => {
   }
 });
 
+// pydownloader 경로 설정
+function getPydownloaderPath() {
+  if (isDev) {
+    return path.join(__dirname, 'src', 'utils', 'pydownloader', 'pydownloader');
+  } else {
+    // production 환경에서는 resources 폴더에서 찾기
+    return path.join(process.resourcesPath, 'pydownloader', 'pydownloader');
+  }
+}
+
 /**
  * 플레이리스트 다운로드 핸들러
  * Python 스크립트를 실행하여 유튜브 플레이리스트 다운로드
  */
 ipcMain.on('download-playlist', (event, downloadConfig) => {
-  const pythonScriptPath = path.join(__dirname, 'dist', 'pydownloader');
+  const pythonScriptPath = getPydownloaderPath();
+  console.log('Python script path:', pythonScriptPath);
+
+  // 파일 존재 확인
+  if (!fs.existsSync(pythonScriptPath)) {
+    console.error('Pydownloader not found at:', pythonScriptPath);
+    event.sender.send('error', {
+      type: 'process_error',
+      message: 'Pydownloader executable not found'
+    });
+    return;
+  }
+
+  // 실행 권한 확인 및 설정 (macOS/Linux)
+  if (process.platform !== 'win32') {
+    try {
+      fs.chmodSync(pythonScriptPath, '755');
+    } catch (error) {
+      console.error('Error setting executable permissions:', error);
+    }
+  }
+
   const { url, codec = 'mp3', quality = '192', directory = './downloads' } = downloadConfig;
 
   const downloadProcess = spawn(pythonScriptPath, [url, codec, quality, directory]);

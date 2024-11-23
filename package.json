@@ -3,6 +3,42 @@
   "main": "main.js",
   "version": "0.1.0",
   "private": true,
+  "homepage": ".",
+  "build": {
+    "appId": "com.yourdomain.youtube-player",
+    "productName": "YouTube Player",
+    "files": [
+      "build/**/*",
+      "main.js",
+      "preload.js"
+    ],
+    "extraFiles": [
+      {
+        "from": "src/utils/pydownloader",
+        "to": "pydownloader",
+        "filter": ["**/*"]
+      }
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "asar": true,
+    "asarUnpack": ["extraResources/**/*"],
+    "mac": {
+      "category": "public.app-category.music",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    }
+  },
   "dependencies": {
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
@@ -19,7 +55,7 @@
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "electron": "^33.2.0",
+
     "howler": "^2.2.4",
     "path-browserify": "^1.0.1",
     "react": "^18.3.1",
@@ -35,7 +71,12 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "electron-start": "ELECTRON_START_URL=http://localhost:3000 electron .",
-    "electron-build": "npm run build && electron ."
+    "electron-build": "npm run build && electron .",
+    "predist": "npm run build",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
   "eslintConfig": {
     "extends": [
@@ -57,6 +98,8 @@
   },
   "devDependencies": {
     "@types/ffmpeg": "^1.0.7",
-    "@types/path-browserify": "^1.0.3"
+    "@types/path-browserify": "^1.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^24.9.1"
   }
 }
