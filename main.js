@@ -202,12 +202,30 @@ ipcMain.handle('ensure-directory', async (_, directoryPath) => {
 
 // pydownloader 경로 설정
 function getPydownloaderPath() {
+  let pythonScriptPath;
   if (isDev) {
-    return path.join(__dirname, 'src', 'utils', 'pydownloader', 'pydownloader');
+    pythonScriptPath = path.join(app.getAppPath(), 'src', 'utils', 'dist', 'pydownloader');
   } else {
-    // production 환경에서는 resources 폴더에서 찾기
-    return path.join(process.resourcesPath, 'pydownloader', 'pydownloader');
+    const contentsPath = path.dirname(process.resourcesPath); // Contents 디렉토리
+    pythonScriptPath = path.join(contentsPath, 'pydownloader');
   }
+
+  // 디버깅 정보 출력
+  console.log('Environment:', isDev ? 'development' : 'production');
+  console.log('App path:', app.getAppPath());
+  console.log('Resources path:', process.resourcesPath);
+  console.log('Pydownloader path:', pythonScriptPath);
+  console.log('Path exists:', fs.existsSync(pythonScriptPath));
+
+  // 디렉토리 내용 확인
+  try {
+    const dirPath = path.dirname(pythonScriptPath);
+    console.log('Directory contents:', fs.readdirSync(dirPath));
+  } catch (error) {
+    console.error('Error reading directory:', error);
+  }
+
+  return pythonScriptPath;
 }
 
 /**
@@ -216,14 +234,20 @@ function getPydownloaderPath() {
  */
 ipcMain.on('download-playlist', (event, downloadConfig) => {
   const pythonScriptPath = getPydownloaderPath();
-  console.log('Python script path:', pythonScriptPath);
 
-  // 파일 존재 확인
   if (!fs.existsSync(pythonScriptPath)) {
     console.error('Pydownloader not found at:', pythonScriptPath);
+    // 상위 디렉토리 내용도 확인
+    try {
+      const parentDir = path.dirname(path.dirname(pythonScriptPath));
+      console.log('Parent directory contents:', fs.readdirSync(parentDir));
+    } catch (error) {
+      console.error('Error reading parent directory:', error);
+    }
+
     event.sender.send('error', {
       type: 'process_error',
-      message: 'Pydownloader executable not found'
+      message: `Pydownloader executable not found at ${pythonScriptPath}`
     });
     return;
   }

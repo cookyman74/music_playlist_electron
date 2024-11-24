@@ -10,11 +10,12 @@
     "files": [
       "build/**/*",
       "main.js",
-      "preload.js"
+      "preload.js",
+      "dist/**/*"
     ],
     "extraFiles": [
       {
-        "from": "src/utils/pydownloader",
+        "from": "src/utils/dist/pydownloader",
         "to": "pydownloader",
         "filter": ["**/*"]
       }
