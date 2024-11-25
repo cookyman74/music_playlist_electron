@@ -13,6 +13,17 @@
       "preload.js",
       "dist/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "src/utils/dist",
+        "to": "pydownloader"
+      },
+      {
+        "from": "src/ffmpeg-binaries/${platform}",
+        "to": "ffmpeg",
+        "filter": ["**/*"]
+      }
+    ],
     "extraFiles": [
       {
         "from": "src/utils/dist/pydownloader",
@@ -37,7 +48,8 @@
       "target": ["nsis", "portable"]
     },
     "linux": {
-      "target": ["AppImage", "deb"]
+      "target": ["AppImage", "deb"],
+      "category": "Audio"
     }
   },
   "dependencies": {
@@ -74,7 +86,7 @@
     "electron-start": "ELECTRON_START_URL=http://localhost:3000 electron .",
     "electron-build": "npm run build && electron .",
     "predist": "npm run build",
-    "dist": "electron-builder",
+    "dist": "node ./src/scripts/download-ffmpeg.js && electron-builder",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux"

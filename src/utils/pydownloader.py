@@ -17,21 +17,55 @@ class PlaylistDownloader:
         - `preferred_quality`: 저장할 파일의 음질 (예: 192kbps)
         - `download_directory`: 다운로드할 파일을 저장할 폴더 경로
         """
+        # 로거 설정 (가장 먼저 초기화)
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
+
         self.url = url
         self.preferred_codec = preferred_codec
         self.preferred_quality = preferred_quality
         self.download_directory = os.path.abspath(download_directory)
 
+        # FFmpeg 경로 설정 및 로깅 강화
+        self.ffmpeg_path = os.getenv('FFMPEG_PATH')
+        if self.ffmpeg_path:
+            ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
+            self.logger.info(f"FFmpeg directory: {ffmpeg_dir}")
+            # PATH 환경변수에 FFmpeg 경로 추가
+            os.environ['PATH'] = f"{ffmpeg_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+        else:
+            self.logger.warning("FFMPEG_PATH environment variable not set")
+
+        # FFmpeg 실행 가능 여부 확인
+        self.__check_ffmpeg()
+
         # 썸네일 디렉토리 설정
         self.thumbnail_directory = os.path.join(download_directory, 'thumbnails')
         os.makedirs(self.thumbnail_directory, exist_ok=True)
 
-        # 로거 설정
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        self.logger.addHandler(console_handler)
+    def __check_ffmpeg(self) -> None:
+        """FFmpeg 사용 가능 여부 확인"""
+        try:
+            if self.ffmpeg_path:
+                if not os.path.exists(self.ffmpeg_path):
+                    raise FileNotFoundError(f"FFmpeg not found at: {self.ffmpeg_path}")
+                # 실행 권한 확인
+                if not os.access(self.ffmpeg_path, os.X_OK):
+                    os.chmod(self.ffmpeg_path, 0o755)
+                self.logger.info(f"FFmpeg found and executable at: {self.ffmpeg_path}")
+            else:
+                self.logger.warning("FFmpeg path not set, will try system FFmpeg")
+        except Exception as e:
+            self.logger.error(f"FFmpeg check failed: {str(e)}")
+            self.__print_message('error', {
+                'type': 'ffmpeg_error',
+                'message': str(e)
+            })
 
     def __print_message(self, message_type: str, data: Dict[str, Any]) -> None:
         """표준화된 형식으로 메시지 출력"""
@@ -125,12 +159,27 @@ class PlaylistDownloader:
                 'preferredcodec': self.preferred_codec,
                 'preferredquality': self.preferred_quality,
             }],
+            'extractor-args': 'youtube:player_client=all',
             'quiet': True,
             'no_warnings': True,
         }
 
+        # FFmpeg 설정 추가
+        if self.ffmpeg_path and os.path.exists(self.ffmpeg_path):
+            ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
+            ydl_opts.update({
+                'ffmpeg_location': ffmpeg_dir,
+                'prefer_ffmpeg': True
+            })
+            # 환경변수에도 설정
+            os.environ['PATH'] = f"{ffmpeg_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+
         try:
             with YoutubeDL(ydl_opts) as ydl:
+                # FFmpeg 설정 직접 지정
+                if self.ffmpeg_path:
+                    ydl.params['ffmpeg_location'] = os.path.dirname(self.ffmpeg_path)
+
                 info = ydl.extract_info(track['url'], download=True)
 
                 actual_info = info['entries'][0] if info and 'entries' in info else info

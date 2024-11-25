@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, protocol, net } = require('electron');
 const path = require('path');
+const os = require('os');
 const isDev = process.env.NODE_ENV === 'development';
 
 const { spawn } = require('child_process');
@@ -228,6 +229,49 @@ function getPydownloaderPath() {
   return pythonScriptPath;
 }
 
+function getFFmpegPath() {
+  const platform = os.platform();
+  let ffmpegPath;
+
+  if (isDev) {
+    // 개발 환경에서는 시스템의 ffmpeg 전체 경로를 찾음
+    if (platform === 'darwin') {
+      ffmpegPath = '/opt/homebrew/bin/ffmpeg';  // M1 Mac
+      if (!fs.existsSync(ffmpegPath)) {
+        ffmpegPath = '/usr/local/bin/ffmpeg';  // Intel Mac
+      }
+    } else if (platform === 'win32') {
+      // Windows의 경우 PATH에서 찾기
+      const where = require('which');
+      try {
+        ffmpegPath = where.sync('ffmpeg.exe');
+      } catch (e) {
+        console.error('FFmpeg not found in PATH');
+      }
+    } else {
+      // Linux
+      ffmpegPath = '/usr/bin/ffmpeg';
+    }
+  } else {
+    // 배포 환경
+    const resourcePath = process.resourcesPath;
+    if (platform === 'win32') {
+      ffmpegPath = path.join(resourcePath, 'ffmpeg', 'ffmpeg.exe');
+    } else {
+      ffmpegPath = path.join(resourcePath, 'ffmpeg', 'ffmpeg');
+    }
+  }
+
+  // FFmpeg 경로 확인 및 로깅
+  console.log('FFmpeg path check:', {
+    path: ffmpegPath,
+    exists: fs.existsSync(ffmpegPath),
+    permissions: fs.existsSync(ffmpegPath) ? fs.statSync(ffmpegPath).mode : null
+  });
+
+  return ffmpegPath;
+}
+
 /**
  * 플레이리스트 다운로드 핸들러
  * Python 스크립트를 실행하여 유튜브 플레이리스트 다운로드
@@ -235,9 +279,9 @@ function getPydownloaderPath() {
 ipcMain.on('download-playlist', (event, downloadConfig) => {
   const pythonScriptPath = getPydownloaderPath();
 
+  // pydownloader 존재 여부 확인
   if (!fs.existsSync(pythonScriptPath)) {
     console.error('Pydownloader not found at:', pythonScriptPath);
-    // 상위 디렉토리 내용도 확인
     try {
       const parentDir = path.dirname(path.dirname(pythonScriptPath));
       console.log('Parent directory contents:', fs.readdirSync(parentDir));
@@ -252,18 +296,47 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
     return;
   }
 
-  // 실행 권한 확인 및 설정 (macOS/Linux)
+  // FFmpeg 경로 설정
+  const ffmpegPath = getFFmpegPath();
+  const ffmpegDir = path.dirname(ffmpegPath);
+
+  console.log('FFmpeg configuration:', {
+    ffmpegPath,
+    ffmpegDir,
+    exists: fs.existsSync(ffmpegPath)
+  });
+
+  // 실행 권한 설정 (macOS/Linux)
   if (process.platform !== 'win32') {
     try {
       fs.chmodSync(pythonScriptPath, '755');
+      if (fs.existsSync(ffmpegPath)) {
+        fs.chmodSync(ffmpegPath, '755');
+      }
     } catch (error) {
       console.error('Error setting executable permissions:', error);
     }
   }
 
-  const { url, codec = 'mp3', quality = '192', directory = './downloads' } = downloadConfig;
+  // 다운로드 설정
+  const { url, codec = 'mp3', quality = '192', directory = app.getPath('downloads') } = downloadConfig;
 
-  const downloadProcess = spawn(pythonScriptPath, [url, codec, quality, directory]);
+  // 환경변수 설정
+  const env = {
+    ...process.env,
+    FFMPEG_PATH: ffmpegPath
+  };
+
+  console.log('FFmpeg configuration:', {
+    ffmpegPath,
+    PATH: env.PATH
+  });
+
+  // 프로세스 실행
+  const downloadProcess = spawn(pythonScriptPath, [url, codec, quality, directory], {
+    env,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
 
   // Python 프로세스 출력 처리
   downloadProcess.stdout.on('data', (data) => {
@@ -287,12 +360,19 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
     });
   });
 
-  // 에러 및 종료 처리
+  // 에러 처리
   downloadProcess.stderr.on('data', (data) => {
-    console.error(`stderr: ${data}`);
-    event.sender.send('download-error', { url, success: false, error: data.toString() });
+    const errorMsg = data.toString();
+    console.error('Download error:', errorMsg);
+    event.sender.send('download-error', {
+      url,
+      success: false,
+      error: errorMsg,
+      path: directory
+    });
   });
 
+  // 프로세스 종료 처리
   downloadProcess.on('close', (code) => {
     console.log(`다운로드 프로세스 종료. 종료 코드: ${code}`);
     event.sender.send('download-complete', {
@@ -302,9 +382,14 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
     });
   });
 
+  // 프로세스 에러 처리
   downloadProcess.on('error', (error) => {
     console.error('프로세스 실행 에러:', error);
-    event.sender.send('error', { type: 'process_error', message: error.message });
+    event.sender.send('error', {
+      type: 'process_error',
+      message: error.message,
+      details: error.stack
+    });
   });
 });
 
