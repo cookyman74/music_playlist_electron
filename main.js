@@ -28,6 +28,7 @@ protocol.registerSchemesAsPrivileged([
  * 메인 윈도우 생성 함수
  */
 function createWindow() {
+  if (BrowserWindow.getAllWindows().length > 0) return;
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -40,23 +41,11 @@ function createWindow() {
   });
 
   // 개발/프로덕션 환경에 따른 URL 로드
-  if (isDev) {
-    mainWindow.loadURL(process.env.ELECTRON_START_URL);
-    mainWindow.webContents.openDevTools();
-  } else {
-    // production 환경에서는 빌드된 파일 로드
-    mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
-  }
-
-  // 개발/프로덕션 환경에 따른 URL 로드
   mainWindow.loadURL(
-      process.env.ELECTRON_START_URL || `file://${path.join(__dirname, '/build/index.html')}`
+      isDev
+          ? process.env.ELECTRON_START_URL
+          : `file://${path.join(__dirname, '/build/index.html')}`
   );
-
-  // 개발 환경에서 DevTools 열기
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.webContents.openDevTools();
-  }
 }
 
 /**
@@ -88,7 +77,7 @@ function registerAudioProtocol() {
 // 앱 초기화 시 실행되는 메인 로직
 app.whenReady().then(() => {
   createWindow();
-  registerAudioProtocol();
+  // registerAudioProtocol();
 
   // 이미지 URL 생성 핸들러
   ipcMain.handle('get-image-url', async (_, filePath) => {
@@ -298,6 +287,9 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
 
   // FFmpeg 경로 설정
   const ffmpegPath = getFFmpegPath();
+  if (!ffmpegPath) {
+    throw new Error('FFmpeg path not found. Please ensure FFmpeg is installed.');
+  }
   const ffmpegDir = path.dirname(ffmpegPath);
 
   console.log('FFmpeg configuration:', {
@@ -361,16 +353,30 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
   });
 
   // 에러 처리
-  downloadProcess.stderr.on('data', (data) => {
-    const errorMsg = data.toString();
-    console.error('Download error:', errorMsg);
-    event.sender.send('download-error', {
-      url,
-      success: false,
-      error: errorMsg,
-      path: directory
-    });
-  });
+  // downloadProcess.stderr.on('data', (data) => {
+  //   const errorMsg = data.toString().trim();
+  //
+  //   // 특정 키워드로 메시지를 구분
+  //   if (errorMsg.startsWith('INFO')) {
+  //     console.log('Info:', errorMsg); // 상태 정보는 로그로 출력
+  //     return;
+  //   }
+  //
+  //   if (errorMsg.startsWith('WARNING')) {
+  //     console.warn('Warning:', errorMsg); // 경고 메시지는 무시
+  //     return;
+  //   }
+  //
+  //   if (errorMsg.startsWith('ERROR')) {
+  //     console.error('Critical Error:', errorMsg); // 실제 에러만 처리
+  //     event.sender.send('download-error', {
+  //       url,
+  //       success: false,
+  //       error: errorMsg,
+  //       path: directory,
+  //     });
+  //   }
+  // });
 
   // 프로세스 종료 처리
   downloadProcess.on('close', (code) => {
