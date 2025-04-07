@@ -38,8 +38,20 @@ class PlaylistDownloader:
             self.logger.info(f"FFmpeg directory: {ffmpeg_dir}")
             # PATH 환경변수에 FFmpeg 경로 추가
             os.environ['PATH'] = f"{ffmpeg_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+            self.logger.info(f"Updated PATH: {os.environ['PATH']}")
         else:
             self.logger.warning("FFMPEG_PATH environment variable not set")
+            # 시스템 FFmpeg 찾기 시도
+            try:
+                import shutil
+                ffmpeg_path = shutil.which('ffmpeg')
+                if ffmpeg_path:
+                    self.ffmpeg_path = ffmpeg_path
+                    self.logger.info(f"Found system FFmpeg at: {ffmpeg_path}")
+                else:
+                    self.logger.warning("System FFmpeg not found in PATH")
+            except Exception as e:
+                self.logger.error(f"Error finding system FFmpeg: {str(e)}")
 
         # FFmpeg 실행 가능 여부 확인
         self.__check_ffmpeg()
@@ -167,18 +179,37 @@ class PlaylistDownloader:
         # FFmpeg 설정 추가
         if self.ffmpeg_path and os.path.exists(self.ffmpeg_path):
             ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
+            self.logger.info(f"Using FFmpeg from: {self.ffmpeg_path}")
             ydl_opts.update({
-                'ffmpeg_location': ffmpeg_dir,
+                'ffmpeg_location': self.ffmpeg_path,  # 전체 경로 사용
                 'prefer_ffmpeg': True
             })
             # 환경변수에도 설정
             os.environ['PATH'] = f"{ffmpeg_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+            self.logger.info(f"Updated PATH for FFmpeg: {os.environ['PATH']}")
+        else:
+            self.logger.warning("FFmpeg path not set or not found, will try system FFmpeg")
+            # 시스템 FFmpeg 찾기 시도
+            try:
+                import shutil
+                ffmpeg_path = shutil.which('ffmpeg')
+                if ffmpeg_path:
+                    self.logger.info(f"Found system FFmpeg at: {ffmpeg_path}")
+                    ydl_opts.update({
+                        'ffmpeg_location': ffmpeg_path,
+                        'prefer_ffmpeg': True
+                    })
+                else:
+                    self.logger.warning("System FFmpeg not found in PATH")
+            except Exception as e:
+                self.logger.error(f"Error finding system FFmpeg: {str(e)}")
 
         try:
             with YoutubeDL(ydl_opts) as ydl:
                 # FFmpeg 설정 직접 지정
                 if self.ffmpeg_path:
-                    ydl.params['ffmpeg_location'] = os.path.dirname(self.ffmpeg_path)
+                    ydl.params['ffmpeg_location'] = self.ffmpeg_path  # 전체 경로 사용
+                    self.logger.info(f"Set FFmpeg location in yt-dlp: {self.ffmpeg_path}")
 
                 info = ydl.extract_info(track['url'], download=True)
 
@@ -330,13 +361,47 @@ def main():
         print("사용법: python downloader.py <URL> <preferred_codec> <preferred_quality> <download_directory>")
         sys.exit(1)
 
-    url = sys.argv[1]
-    preferred_codec = sys.argv[2]
-    preferred_quality = sys.argv[3]
-    download_directory = sys.argv[4]
+    try:
+        url = sys.argv[1]
+        preferred_codec = sys.argv[2]
+        preferred_quality = sys.argv[3]
+        download_directory = sys.argv[4]
 
-    downloader = PlaylistDownloader(url, preferred_codec, preferred_quality, download_directory)
-    downloader.download_playlist()
+        print(f"info:Starting download with parameters: URL={url}, codec={preferred_codec}, quality={preferred_quality}, directory={download_directory}")
+        print(f"info:FFMPEG_PATH={os.getenv('FFMPEG_PATH')}")
+        print(f"info:PATH={os.getenv('PATH')}")
+
+        # 디렉토리 존재 여부 확인
+        if not os.path.exists(download_directory):
+            print(f"info:Creating download directory: {download_directory}")
+            os.makedirs(download_directory, exist_ok=True)
+
+        # FFmpeg 확인
+        ffmpeg_path = os.getenv('FFMPEG_PATH')
+        if ffmpeg_path and os.path.exists(ffmpeg_path):
+            print(f"info:FFmpeg found at: {ffmpeg_path}")
+            print(f"info:FFmpeg permissions: {oct(os.stat(ffmpeg_path).st_mode)[-3:]}")
+        else:
+            print(f"warning:FFmpeg not found at: {ffmpeg_path}")
+            # 시스템 FFmpeg 찾기 시도
+            try:
+                import shutil
+                system_ffmpeg = shutil.which('ffmpeg')
+                if system_ffmpeg:
+                    print(f"info:Found system FFmpeg at: {system_ffmpeg}")
+                    os.environ['FFMPEG_PATH'] = system_ffmpeg
+                else:
+                    print("warning:System FFmpeg not found in PATH")
+            except Exception as e:
+                print(f"error:Failed to find system FFmpeg: {str(e)}")
+
+        downloader = PlaylistDownloader(url, preferred_codec, preferred_quality, download_directory)
+        downloader.download_playlist()
+    except Exception as e:
+        import traceback
+        print(f"error:Unexpected error: {str(e)}")
+        print(f"error:Traceback: {traceback.format_exc()}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

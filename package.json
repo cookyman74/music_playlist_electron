@@ -15,19 +15,13 @@
     ],
     "extraResources": [
       {
-        "from": "src/utils/dist",
-        "to": "pydownloader"
+        "from": "src/utils/dist/pydownloader",
+        "to": "pydownloader",
+        "filter": ["**/*"]
       },
       {
         "from": "src/ffmpeg-binaries/${platform}",
         "to": "ffmpeg",
-        "filter": ["**/*"]
-      }
-    ],
-    "extraFiles": [
-      {
-        "from": "src/utils/dist/pydownloader",
-        "to": "pydownloader",
         "filter": ["**/*"]
       }
     ],
@@ -39,7 +33,10 @@
       "output": "release"
     },
     "asar": true,
-    "asarUnpack": ["extraResources/**/*"],
+    "asarUnpack": [
+      "pydownloader/**/*",
+      "ffmpeg/**/*"
+    ],
     "mac": {
       "category": "public.app-category.music",
       "target": ["dmg", "zip"]

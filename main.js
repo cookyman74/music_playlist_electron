@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, session } = require('electron');
 const path = require('path');
 const os = require('os');
 const isDev = process.env.NODE_ENV === 'development';
@@ -11,6 +11,11 @@ const util = require('util');
 const access = util.promisify(fs.access);
 const stat = util.promisify(fs.stat);
 
+// 보안 관련 상수 정의
+const ALLOWED_ORIGINS = ['http://localhost:8800', 'https://accounts.google.com'];
+const ALLOWED_PROTOCOLS = ['media:', 'local-thumbnail:', 'audio:'];
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
 // 커스텀 프로토콜 권한 설정
 protocol.registerSchemesAsPrivileged([
   {
@@ -19,10 +24,47 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       supportFetchAPI: true,
       stream: true,
-      secure: true
+      secure: true,
+      corsEnabled: false
+    }
+  },
+  {
+    scheme: 'local-thumbnail',
+    privileges: {
+      standard: true,
+      supportFetchAPI: true,
+      stream: true,
+      secure: true,
+      corsEnabled: false
     }
   }
 ]);
+
+// 파일 경로 검증 함수
+function validateFilePath(filePath) {
+  // 경로 순회 공격 방지
+  const normalizedPath = path.normalize(filePath);
+  if (normalizedPath.includes('..')) {
+    throw new Error('Invalid file path');
+  }
+  
+  // 허용된 디렉토리 내에 있는지 확인
+  const allowedDirs = [
+    app.getPath('userData'),
+    app.getPath('downloads'),
+    app.getPath('music')
+  ];
+  
+  const isInAllowedDir = allowedDirs.some(dir => 
+    normalizedPath.startsWith(dir)
+  );
+  
+  if (!isInAllowedDir) {
+    throw new Error('File path not in allowed directories');
+  }
+  
+  return normalizedPath;
+}
 
 /**
  * 메인 윈도우 생성 함수
@@ -36,8 +78,27 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       enableRemoteModule: false,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     },
+  });
+
+  // CSP 헤더 설정
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; " +
+          "script-src 'self'; " +
+          "style-src 'self' 'unsafe-inline'; " +
+          "img-src 'self' data: https:; " +
+          "media-src 'self' media: local-thumbnail:; " +
+          "connect-src 'self' https://www.googleapis.com https://accounts.google.com; " +
+          "frame-src 'self' https://accounts.google.com;"
+        ]
+      }
+    });
   });
 
   // 개발/프로덕션 환경에 따른 URL 로드
@@ -76,23 +137,30 @@ function registerAudioProtocol() {
 
 // 앱 초기화 시 실행되는 메인 로직
 app.whenReady().then(() => {
+  // 개발 환경에서 보안 경고 비활성화
+  if (isDev) {
+    process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+  }
+  
   createWindow();
   // registerAudioProtocol();
 
   // 이미지 URL 생성 핸들러
   ipcMain.handle('get-image-url', async (_, filePath) => {
     try {
+      const validatedPath = validateFilePath(filePath);
+      
       // 보안을 위한 경로 검증
-      if (!filePath.includes('thumbnails')) {
+      if (!validatedPath.includes('thumbnails')) {
         throw new Error('Invalid path');
       }
 
-      await fs.promises.access(filePath, fs.constants.F_OK);
-      const encodedPath = encodeURI(filePath).replace(/^\//, '');
+      await fs.promises.access(validatedPath, fs.constants.F_OK);
+      const encodedPath = encodeURI(validatedPath).replace(/^\//, '');
       const imageUrl = `local-thumbnail://${encodedPath}`;
 
       console.log('Image URL created:', {
-        original: filePath,
+        original: validatedPath,
         imageUrl: imageUrl
       });
 
@@ -107,15 +175,21 @@ app.whenReady().then(() => {
   protocol.handle('local-thumbnail', async (request) => {
     try {
       const filePath = decodeURI(request.url.replace('local-thumbnail://', ''));
-      console.log('Attempting to load image:', { filePath });
+      const validatedPath = validateFilePath(filePath);
 
-      if (!fs.existsSync(filePath)) throw new Error('File not found');
+      if (!fs.existsSync(validatedPath)) throw new Error('File not found');
 
-      const fileData = await fs.promises.readFile(filePath);
+      const stats = await fs.promises.stat(validatedPath);
+      if (stats.size > MAX_FILE_SIZE) {
+        throw new Error('File too large');
+      }
+
+      const fileData = await fs.promises.readFile(validatedPath);
       return new Response(fileData, {
         headers: {
           'Content-Type': 'image/jpeg',
-          'Access-Control-Allow-Origin': '*'
+          'Content-Length': stats.size.toString(),
+          'Cache-Control': 'public, max-age=31536000'
         }
       });
     } catch (error) {
@@ -127,15 +201,17 @@ app.whenReady().then(() => {
   // 미디어 프로토콜 핸들러 (오디오 스트리밍)
   ipcMain.handle('get-audio-url', async (_, filePath) => {
     try {
+      const validatedPath = validateFilePath(filePath);
+      
       // 파일 존재 여부 확인
-      await fs.promises.access(filePath, fs.constants.F_OK);
+      await fs.promises.access(validatedPath, fs.constants.F_OK);
 
       // 경로에서 URL 생성
-      const encodedPath = encodeURI(filePath).replace(/^\//, '');
+      const encodedPath = encodeURI(validatedPath).replace(/^\//, '');
       const mediaUrl = `media://${encodedPath}`;
 
       console.log('Audio URL created:', {
-        original: filePath,
+        original: validatedPath,
         mediaUrl: mediaUrl
       });
 
@@ -150,13 +226,19 @@ app.whenReady().then(() => {
   protocol.handle('media', async (request) => {
     try {
       const filePath = decodeURI(request.url.slice('media://'.length));
-      const absolutePath = `/${filePath}`;
-      const stats = await fs.promises.stat(absolutePath);
+      const validatedPath = validateFilePath(filePath);
+      
+      const stats = await fs.promises.stat(validatedPath);
+      if (stats.size > MAX_FILE_SIZE) {
+        throw new Error('File too large');
+      }
 
-      return new Response(fs.createReadStream(absolutePath), {
+      return new Response(fs.createReadStream(validatedPath), {
         headers: {
           'Content-Type': 'audio/mpeg',
-          'Content-Length': stats.size.toString()
+          'Content-Length': stats.size.toString(),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=31536000'
         }
       });
     } catch (error) {
@@ -194,18 +276,31 @@ ipcMain.handle('ensure-directory', async (_, directoryPath) => {
 function getPydownloaderPath() {
   let pythonScriptPath;
   if (isDev) {
-    pythonScriptPath = path.join(app.getAppPath(), 'src', 'utils', 'dist', 'pydownloader');
+    // 개발 환경: 프로젝트 루트의 src/utils/dist/pydownloader 경로 사용
+    pythonScriptPath = path.join(__dirname, 'src', 'utils', 'dist', 'pydownloader');
   } else {
-    const contentsPath = path.dirname(process.resourcesPath); // Contents 디렉토리
-    pythonScriptPath = path.join(contentsPath, 'pydownloader');
+    // 프로덕션 환경: build 디렉토리에서 pydownloader 찾기
+    pythonScriptPath = path.join(__dirname, 'build', 'pydownloader');
+    
+    // build 디렉토리에 없으면 프로젝트 루트에서 찾기
+    if (!fs.existsSync(pythonScriptPath)) {
+      pythonScriptPath = path.join(__dirname, 'pydownloader');
+    }
   }
+
+  // FFmpeg 경로 설정
+  const ffmpegPath = getFFmpegPath();
+  process.env.FFMPEG_PATH = ffmpegPath;
+  process.env.PATH = `${path.dirname(ffmpegPath)}${path.delimiter}${process.env.PATH}`;
 
   // 디버깅 정보 출력
   console.log('Environment:', isDev ? 'development' : 'production');
   console.log('App path:', app.getAppPath());
-  console.log('Resources path:', process.resourcesPath);
+  console.log('Current directory:', __dirname);
   console.log('Pydownloader path:', pythonScriptPath);
   console.log('Path exists:', fs.existsSync(pythonScriptPath));
+  console.log('FFmpeg path:', ffmpegPath);
+  console.log('FFmpeg exists:', fs.existsSync(ffmpegPath));
 
   // 디렉토리 내용 확인
   try {
@@ -242,12 +337,23 @@ function getFFmpegPath() {
       ffmpegPath = '/usr/bin/ffmpeg';
     }
   } else {
-    // 배포 환경
-    const resourcePath = process.resourcesPath;
-    if (platform === 'win32') {
-      ffmpegPath = path.join(resourcePath, 'ffmpeg', 'ffmpeg.exe');
+    // 프로덕션 환경에서는 시스템 FFmpeg 사용
+    if (platform === 'darwin') {
+      ffmpegPath = '/opt/homebrew/bin/ffmpeg';  // M1 Mac
+      if (!fs.existsSync(ffmpegPath)) {
+        ffmpegPath = '/usr/local/bin/ffmpeg';  // Intel Mac
+      }
+    } else if (platform === 'win32') {
+      // Windows의 경우 PATH에서 찾기
+      const where = require('which');
+      try {
+        ffmpegPath = where.sync('ffmpeg.exe');
+      } catch (e) {
+        console.error('FFmpeg not found in PATH');
+      }
     } else {
-      ffmpegPath = path.join(resourcePath, 'ffmpeg', 'ffmpeg');
+      // Linux
+      ffmpegPath = '/usr/bin/ffmpeg';
     }
   }
 
@@ -353,30 +459,31 @@ ipcMain.on('download-playlist', (event, downloadConfig) => {
   });
 
   // 에러 처리
-  // downloadProcess.stderr.on('data', (data) => {
-  //   const errorMsg = data.toString().trim();
-  //
-  //   // 특정 키워드로 메시지를 구분
-  //   if (errorMsg.startsWith('INFO')) {
-  //     console.log('Info:', errorMsg); // 상태 정보는 로그로 출력
-  //     return;
-  //   }
-  //
-  //   if (errorMsg.startsWith('WARNING')) {
-  //     console.warn('Warning:', errorMsg); // 경고 메시지는 무시
-  //     return;
-  //   }
-  //
-  //   if (errorMsg.startsWith('ERROR')) {
-  //     console.error('Critical Error:', errorMsg); // 실제 에러만 처리
-  //     event.sender.send('download-error', {
-  //       url,
-  //       success: false,
-  //       error: errorMsg,
-  //       path: directory,
-  //     });
-  //   }
-  // });
+  downloadProcess.stderr.on('data', (data) => {
+    const errorMsg = data.toString().trim();
+    console.error('Python stderr:', errorMsg);
+
+    // 특정 키워드로 메시지를 구분
+    if (errorMsg.startsWith('info:')) {
+      console.log('Info:', errorMsg.substring(5)); // 상태 정보는 로그로 출력
+      return;
+    }
+
+    if (errorMsg.startsWith('warning:')) {
+      console.warn('Warning:', errorMsg.substring(8)); // 경고 메시지는 무시
+      return;
+    }
+
+    if (errorMsg.startsWith('error:')) {
+      console.error('Error:', errorMsg.substring(6)); // 실제 에러만 처리
+      event.sender.send('download-error', {
+        url,
+        success: false,
+        error: errorMsg.substring(6),
+        path: directory,
+      });
+    }
+  });
 
   // 프로세스 종료 처리
   downloadProcess.on('close', (code) => {
@@ -406,3 +513,52 @@ console.log('Application paths:', {
   execPath: process.execPath,
   resourcePath: process.resourcesPath
 });
+
+// 인증 창 생성 함수
+function createAuthWindow(authUrl) {
+  const authWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
+    }
+  });
+
+  // OAuth 콜백 URL 검증
+  const isValidCallback = (url) => {
+    try {
+      const callbackUrl = new URL(url);
+      return ALLOWED_ORIGINS.includes(callbackUrl.origin);
+    } catch {
+      return false;
+    }
+  };
+
+  authWindow.loadURL(authUrl);
+
+  // OAuth 콜백 처리
+  authWindow.webContents.on('will-redirect', (event, url) => {
+    if (!isValidCallback(url)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (url.startsWith('http://localhost:8800/auth/google/callback')) {
+      const urlParams = new URL(url).searchParams;
+      const accessToken = urlParams.get('accessToken');
+
+      if (accessToken) {
+        BrowserWindow.getAllWindows()[0].webContents.send('auth-success', accessToken);
+        authWindow.close();
+      }
+    }
+  });
+
+  // 인증 창이 닫힐 때 메인 창에 포커스 맞추기
+  authWindow.on('closed', () => {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (mainWindow) mainWindow.focus();
+  });
+}
